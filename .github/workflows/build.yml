@@ -2,7 +2,7 @@ name: Compilar Android APK Automaticamente
 
 on:
   push:
-    branches: [ "main" ] # Aciona a compilação sempre que você atualizar o repositório
+    branches: [ "main" ]
 
 jobs:
   build:
@@ -18,11 +18,10 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Dar permissão para o Gradle
-      run: chmod +x gradlew
+    # REMOVEMOS O PASSO "chmod +x gradlew" DAQUI
 
     - name: Compilar o Aplicativo Nativo
-      run: gradle assembleDebug
+      run: ./gradlew assembleDebug
 
     - name: Liberar o APK gerado para Download
       uses: actions/upload-artifact@v4
