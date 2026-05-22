@@ -1,33 +1,40 @@
-name: Compilar Android APK Automaticamente
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+}
 
-on:
-  push:
-    branches: [ "main" ]
+android {
+    namespace = "com.catsblock.car"
+    compileSdk = 34
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Baixar o código do Repositório
-      uses: actions/checkout@v4
+    defaultConfig {
+        applicationId = "com.catsblock.car"
+        minSdk = 24
+        targetSdk = 34
+        versionCode = 1
+        versionName = "1.0"
+    }
 
-    - name: Configurar Java
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+}
 
-    - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v3
-      with:
-        # Isso força o uso da versão 8.5, evitando o conflito com a 9.5.1
-        gradle-version: '8.5'
-
-    - name: Build
-      run: gradle assembleDebug
-
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: CatsBlockCar-App
-        path: app/build/outputs/apk/debug/app-debug.apk
+dependencies {
+    implementation("androidx.core:core-ktx:1.12.0")
+    implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("com.google.android.material:material:1.10.0")
+}
