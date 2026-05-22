@@ -1,40 +1,33 @@
-plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
-}
+name: Compilar Android APK Automaticamente
 
-android {
-    namespace = "com.catsblock.car"
-    compileSdk = 34
+on:
+  push:
+    branches: [ "main" ]
 
-    defaultConfig {
-        applicationId = "com.catsblock.car"
-        minSdk = 24
-        targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
-    }
+jobs:
+  build:
+    runs-on: ubuntu-latest
 
-    buildTypes {
-        release {
-            isMinifyEnabled = true
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-        }
-    }
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-}
+    steps:
+    - name: Baixar o código do Repositório
+      uses: actions/checkout@v4
 
-dependencies {
-    implementation("androidx.core:core-ktx:1.12.0")
-    implementation("androidx.appcompat:appcompat:1.6.1")
-    implementation("com.google.android.material:material:1.10.0")
-}
+    - name: Configurar o Java (JDK 17)
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Criar Gradle Wrapper e Compilar
+      # Este comando abaixo resolve o erro de 'No such file or directory'
+      # Ele cria o arquivo gradlew na hora, caso ele esteja faltando.
+      run: |
+        gradle wrapper --gradle-version 8.5
+        chmod +x gradlew
+        ./gradlew assembleDebug
+
+    - name: Liberar o APK gerado para Download
+      uses: actions/upload-artifact@v4
+      with:
+        name: CatsBlockCar-App
+        path: app/build/outputs/apk/debug/app-debug.apk
