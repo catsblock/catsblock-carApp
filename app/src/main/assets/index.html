@@ -65,12 +65,6 @@
                     if(loginScreen) loginScreen.style.display = 'none';
                     const loader = document.getElementById('loader');
                     if(loader) loader.style.display = 'none';
-                    
-                    // Integração Onboarding: avança se estiver aguardando login
-                    if(window.isWaitingForLoginOb) {
-                        window.isWaitingForLoginOb = false;
-                        showOnboardingStep(3);
-                    }
                 } else {
                     window.currentAuthUser = null;
                 }
@@ -440,18 +434,8 @@
             <button onclick="requestInitialGps()" id="btn-ob-gps" class="w-full bg-white text-black py-4 rounded-2xl font-bold text-lg hover:scale-[1.02] transition-transform">Avançar</button>
         </div>
 
-        <!-- Passo 2: Login -->
+        <!-- Passo 2: Termos (A etapa Google Login não existe mais) -->
         <div id="ob-step-2" class="ob-step">
-            <i data-lucide="user-circle" size="48" class="mb-6 text-white"></i>
-            <h2 class="text-2xl font-black mb-4 text-white">Conta Google</h2>
-            <p class="text-zinc-400 text-sm leading-relaxed mb-8">Faça login para poder reportar acidentes, radares e obras e ajudar a comunidade.</p>
-            <button onclick="triggerLoginOb()" class="w-full bg-white text-black py-4 rounded-2xl font-bold text-lg hover:scale-[1.02] transition-transform flex justify-center items-center gap-2">
-                Ok (Fazer Login)
-            </button>
-        </div>
-
-        <!-- Passo 3: Termos -->
-        <div id="ob-step-3" class="ob-step">
             <i data-lucide="file-text" size="48" class="mb-6 text-white"></i>
             <h2 class="text-2xl font-black mb-4 text-white">Termos de Uso</h2>
             <div class="text-zinc-400 text-[11px] leading-relaxed mb-6 text-left bg-white/5 p-4 rounded-xl border border-white/10 h-40 overflow-y-auto">
@@ -1056,7 +1040,7 @@
             document.querySelectorAll('.ob-step').forEach(el => el.classList.remove('active'));
             document.getElementById('ob-step-' + stepIdx).classList.add('active');
             
-            const totalSteps = 3; 
+            const totalSteps = 2; // Was 3
             const pct = stepIdx === 0 ? 0 : Math.max(10, (stepIdx / totalSteps) * 100);
             document.getElementById('ob-progress-bar').style.width = `${pct}%`;
         }
@@ -1067,21 +1051,12 @@
             btn.disabled = true;
 
             navigator.geolocation.getCurrentPosition(pos => {
-                showOnboardingStep(2);
+                showOnboardingStep(2); // Goes to Terms now
             }, err => {
                 alert("GPS é obrigatório. Por favor, ative a localização exata nas configurações.");
                 btn.innerText = "Tentar Novamente";
                 btn.disabled = false;
             }, {enableHighAccuracy: true});
-        }
-
-        function triggerLoginOb() {
-            if (window.currentAuthUser) {
-                showOnboardingStep(3);
-            } else {
-                window.isWaitingForLoginOb = true;
-                handleLogin();
-            }
         }
 
         function checkTerms() {
@@ -1135,11 +1110,12 @@
         }
 
         function initiateReport() {
-            if (window.currentAuthUser) {
-                toggleReportPanel(true);
-            } else {
-                toggleLogin(true);
-            }
+            showAlertModal(
+                'AVISO', 
+                'Reporte Indisponível', 
+                'O botão de Reportar não tem suporte em apps, Por favor, vá pra nosso site pra reportar.', 
+                'megaphone'
+            );
         }
 
         function toggleLogin(show) {
@@ -1152,33 +1128,26 @@
         }
 
         async function handleLogin() {
-    const loader = document.getElementById('loader');
-    if (loader) loader.style.display = 'flex';
-    
-    try {
-        // 1. Configura a persistência para LOCAL (essencial para evitar erros de state em WebView)
-        await firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+            const loader = document.getElementById('loader');
+            if (loader) loader.style.display = 'flex';
+            
+            try {
+                if (!window.fb || !window.fb.auth || !window.fb.provider) {
+                    throw new Error("Serviços Firebase não inicializados no escopo global.");
+                }
 
-        if (!window.fb || !window.fb.auth || !window.fb.provider) {
-            throw new Error("Serviços Firebase não inicializados.");
+                const result = await window.fb.signInWithPopup(window.fb.fbAuth || window.fb.auth, window.fb.provider);
+                window.currentAuthUser = result.user;
+                toggleLogin(false);
+                if(!window.isWaitingForLoginOb) {
+                    toggleReportPanel(true);
+                }
+            } catch (error) {
+                console.error("Login failed:", error);
+            } finally {
+                if (loader) loader.style.display = 'none';
+            }
         }
-
-        // 2. Tenta o login com Popup
-        const result = await window.fb.signInWithPopup(window.fb.auth, window.fb.provider);
-        
-        window.currentAuthUser = result.user;
-        toggleLogin(false);
-        
-        if(!window.isWaitingForLoginOb) {
-            toggleReportPanel(true);
-        }
-    } catch (error) {
-        console.error("Login failed:", error);
-    } finally {
-        if (loader) loader.style.display = 'none';
-    }
-        }
-        
 
         function openSubMenu(id) {
             document.getElementById('main-report-grid').classList.add('hidden');
@@ -2052,7 +2021,8 @@
             setArrowMaterial(tempArrowStyle.bgMaterial);
             updateArrowPreview();
         }
-
+        
+        
         async function translateText(text, speakIt = true) {
             if (!text) return;
             
