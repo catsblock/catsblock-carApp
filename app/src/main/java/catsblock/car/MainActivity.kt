@@ -3,28 +3,27 @@ package com.catsblock.car
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Bundle
+import android.os.Message
 import android.webkit.*
 import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
-import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
+    private lateinit var container: FrameLayout
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         supportActionBar?.hide()
 
-        // Verifica permissão de localização
         verificarPermissaoLocalizacao()
 
-        val container = FrameLayout(this)
+        container = FrameLayout(this)
         webView = WebView(this)
         container.addView(webView)
         setContentView(container)
@@ -34,28 +33,43 @@ class MainActivity : AppCompatActivity() {
             javaScriptEnabled = true
             domStorageEnabled = true
             setGeolocationEnabled(true)
+            setSupportMultipleWindows(true) // ESSENCIAL para o popup do Firebase
+            javaScriptCanOpenWindowsAutomatically = true
+            // Engana o Google para evitar erro 403 (disallowed_useragent)
+            userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
         }
 
-        // Configuração de cookies para persistência da sessão
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
 
-        webView.webViewClient = object : WebViewClient() {
-            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                val url = request?.url.toString()
-
-                // Fluxo de login seguro: Se for Google ou Firebase Auth, abre na Custom Tab
-                if (url.contains("accounts.google.com") || url.contains("firebaseauth")) {
-                    val builder = CustomTabsIntent.Builder()
-                    val customTabsIntent = builder.build()
-                    customTabsIntent.launchUrl(this@MainActivity, Uri.parse(url))
-                    return true
-                }
-                return false
-            }
-        }
+        // WebViewClient padrão (NÃO intercepta URLs, deixa o Firebase lidar com o fluxo)
+        webView.webViewClient = WebViewClient()
         
         webView.webChromeClient = object : WebChromeClient() {
+            // Este método captura o pedido de popup do Firebase Auth
+            override fun onCreateWindow(view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message?): Boolean {
+                val newWebView = WebView(this@MainActivity)
+                newWebView.settings.apply {
+                    javaScriptEnabled = true
+                    domStorageEnabled = true
+                    userAgentString = settings.userAgentString
+                }
+                
+                container.addView(newWebView)
+                
+                val transport = resultMsg?.obj as WebView.WebViewTransport
+                transport.webView = newWebView
+                resultMsg.sendToTarget()
+                
+                newWebView.webChromeClient = object : WebChromeClient() {
+                    override fun onCloseWindow(window: WebView?) {
+                        container.removeView(newWebView)
+                        CookieManager.getInstance().flush()
+                    }
+                }
+                return true
+            }
+
             override fun onGeolocationPermissionsShowPrompt(origin: String, callback: GeolocationPermissions.Callback) {
                 callback.invoke(origin, true, false)
             }
@@ -73,12 +87,12 @@ class MainActivity : AppCompatActivity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 1001 && (grantResults.isEmpty() || grantResults[0] != PackageManager.PERMISSION_GRANTED)) {
-            verificarPermissaoLocalizacao() // Loop para garantir a permissão
+            verificarPermissaoLocalizacao()
         }
     }
 
     override fun onPause() {
         super.onPause()
-        CookieManager.getInstance().flush() // Salva cookies ao sair
+        CookieManager.getInstance().flush()
     }
 }
