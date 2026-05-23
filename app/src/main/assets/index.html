@@ -1,1 +1,3134 @@
-adding soon
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    
+    <!-- Meta tags estritas para modo PWA (Aplicativo Nativo na Tela Inicial) -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="CatsBlock Car">
+    <meta name="theme-color" content="#000000">
+    <link rel="manifest" href='data:application/manifest+json,{"name":"CatsBlock Car","short_name":"CatsBlock","display":"standalone","start_url":".","background_color":"#000000","theme_color":"#000000"}'>
+    
+    <title>CatsBlock Car</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { initializeAppCheck, ReCaptchaV3Provider } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app-check.js";
+        import { getFirestore, doc, setDoc, getDoc, collection, query, onSnapshot, updateDoc, arrayUnion, serverTimestamp, increment } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signInWithCustomToken, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+
+        const firebaseConfig = {
+          apiKey: "AIzaSyA4mSp5Ws_1TxAJ7v62CO5MomEGSGlr_Ek",
+          authDomain: "notes-cb.firebaseapp.com",
+          projectId: "notes-cb",
+          storageBucket: "notes-cb.firebasestorage.app",
+          messagingSenderId: "998677149165",
+          appId: "1:998677149165:web:777270f3dbac5b7c3fe3e4",
+          measurementId: "G-979CXJ6VZQ"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const appCheck = initializeAppCheck(app, {
+          provider: new ReCaptchaV3Provider('6Ldh1OgsAAAAAPkNl2kYntMyf-M2o-m4guxVx9rl'),
+          isTokenAutoRefreshEnabled: true
+        });
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        const provider = new GoogleAuthProvider();
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'catsblock-car-v1';
+
+        window.fb = { db, auth, provider, appId, doc, setDoc, getDoc, collection, query, onSnapshot, updateDoc, arrayUnion, serverTimestamp, signInWithPopup, increment };
+
+        const initAuth = async () => {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                try {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } catch(e) {
+                    console.error("Token expirado ou inválido");
+                }
+            }
+            
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    window.currentAuthUser = user;
+                    const loginScreen = document.getElementById('login-screen');
+                    if(loginScreen) loginScreen.style.display = 'none';
+                    const loader = document.getElementById('loader');
+                    if(loader) loader.style.display = 'none';
+                    
+                    // Integração Onboarding: avança se estiver aguardando login
+                    if(window.isWaitingForLoginOb) {
+                        window.isWaitingForLoginOb = false;
+                        showOnboardingStep(3);
+                    }
+                } else {
+                    window.currentAuthUser = null;
+                }
+            });
+        };
+        initAuth();
+    </script>
+    
+    <style>
+        :root {
+            --accent: #A855F7;
+            --surface: rgba(18, 18, 20, 0.98);
+            --bg-dark: #000000;
+        }
+
+        body, html {
+            margin: 0; padding: 0; height: 100%; width: 100%;
+            background-color: var(--bg-dark);
+            color: #ffffff; font-family: 'Inter', sans-serif;
+            overflow: hidden; touch-action: none;
+        }
+
+        .apple-tiles { transition: filter 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
+        body.theme-light .apple-tiles { filter: contrast(1.02) saturate(1.1) brightness(1.05) sepia(0.05); }
+        body.theme-dark .apple-tiles { filter: brightness(0.9) contrast(1.15) sepia(0.25) hue-rotate(200deg) saturate(0.85); }
+
+        #viewport { 
+            width: 100vw; 
+            height: 100vh; 
+            perspective: 1500px; 
+            overflow: hidden; 
+            background: #000; 
+            position: relative; 
+        }
+        
+        #map { 
+            height: 100%; 
+            width: 100%; 
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1; 
+        }
+
+        .ui-container { position: absolute; left: 50%; transform: translateX(-50%); width: 92%; max-width: 420px; z-index: 2000; pointer-events: none; }
+        .ui-container * { pointer-events: auto; }
+        .top-ui { top: 20px; }
+        
+        /* Modificações de layout do bottom-ui para transições de estado */
+        .bottom-ui { position: absolute; bottom: 25px; left: 50%; transform: translateX(-50%) translateY(100%); width: 92%; max-width: 420px; z-index: 2000; display: none; opacity: 0; transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1); }
+        .bottom-ui.active { display: block; opacity: 1; transform: translateX(-50%) translateY(0); }
+
+        .glass-card {
+            background: var(--surface); backdrop-filter: blur(25px);
+            border-radius: 28px; padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.8);
+            transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+
+        #instruction-panel {
+            display: none; align-items: center; gap: 15px;
+            background: var(--accent); color: white; padding: 20px;
+            border-radius: 24px; margin-bottom: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            transition: background 0.3s;
+        }
+
+        .btn-action {
+            background: #ffffff; color: #000000; font-weight: 800;
+            padding: 16px; border-radius: 18px; width: 100%;
+            margin-top: 15px; font-size: 15px; transition: all 0.2s;
+            text-transform: uppercase;
+        }
+        .btn-stop { background: #ff453a; color: white; }
+
+        .marker-blue { 
+            width: 8px; height: 8px; 
+            max-width: 8px; max-height: 8px;
+            background: var(--accent); border: 1.5px solid white; border-radius: 50%; 
+            box-shadow: 0 0 10px var(--accent); 
+            transition: background 0.3s, box-shadow 0.3s;
+        }
+        
+        .radar-dot { 
+            width: 18px; height: 18px; 
+            max-width: 18px; max-height: 18px;
+            border: 2px solid white; border-radius: 50%; cursor: pointer; 
+            box-shadow: 0 0 10px rgba(0,0,0,0.5); 
+        }
+        .radar-speed { background: #ff453a; }
+        .radar-traffic { background: #facc15; }
+        .radar-bus { background: #3b82f6; }
+        
+        .speed-badge {
+            position: absolute; left: 20px; bottom: 25px;
+            background: rgba(0,0,0,0.85); backdrop-filter: blur(10px);
+            padding: 12px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1);
+            text-align: center; min-width: 80px; z-index: 1000;
+            transition: bottom 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .ui-lift-active { bottom: 320px !important; }
+        .ui-lift-minimized { bottom: 210px !important; }
+
+        #report-trigger-btn {
+            position: absolute; right: 20px; bottom: 25px;
+            background: var(--accent); color: white;
+            padding: 15px; border-radius: 20px; z-index: 1000;
+            transition: bottom 0.5s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s, box-shadow 0.3s;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        .leaflet-routing-container, .leaflet-control-zoom, .leaflet-control-attribution { display: none !important; }
+        
+        #splash {
+            position: fixed; inset: 0; background: #000; z-index: 9999;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            padding: 20px; text-align: center;
+        }
+
+        .search-item { padding: 15px; border-bottom: 1px solid rgba(255,255,255,0.05); cursor: pointer; }
+        
+        .cost-badge {
+            background: rgba(255,255,255,0.05);
+            padding: 8px 12px;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.05);
+            display: flex; flex-direction: column; justify-content: center;
+        }
+
+        .mode-btn { 
+            background: rgba(255,255,255,0.05); padding: 10px; border-radius: 14px; 
+            transition: all 0.2s; color: #71717a; border: 1px solid transparent;
+        }
+        .mode-btn.active { background: var(--accent); color: white; }
+
+        .arrow-wrapper {
+            width: 24px; height: 24px;
+            max-width: 24px; max-height: 24px;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+        }
+        
+        .nav-arrow-svg {
+            width: 14px; height: 14px;
+            filter: drop-shadow(0 2px 5px rgba(0,0,0,0.5));
+        }
+
+        #settings-btn {
+            position: absolute; right: 20px; top: 125px; z-index: 3000;
+            background: var(--surface); border-radius: 15px; padding: 12px;
+            border: 1px solid rgba(255,255,255,0.1); color: white;
+            pointer-events: auto; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            transition: top 0.5s ease;
+        }
+        .settings-nav-active { top: 220px !important; }
+
+        #settings-panel {
+            display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.95);
+            z-index: 5000; padding: 30px;
+            overflow-y: auto;
+        }
+
+        #login-screen, #report-panel {
+            display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.92);
+            z-index: 6000; flex-direction: column; align-items: center; justify-content: center;
+            padding: 30px; backdrop-filter: blur(10px);
+        }
+
+        .login-card, .report-card {
+            background: var(--surface); border-radius: 32px; padding: 35px;
+            width: 100%; max-width: 400px; border: 1px solid rgba(255,255,255,0.1);
+            text-align: center;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .report-grid { display: grid; grid-cols: 2; gap: 12px; width: 100%; margin-top: 20px; }
+        .report-option {
+            background: rgba(255,255,255,0.05); padding: 15px; border-radius: 20px;
+            display: flex; flex-direction: column; align-items: center; gap: 8px;
+            border: 1px solid transparent; transition: all 0.2s;
+            cursor: pointer;
+        }
+        .report-option:active { transform: scale(0.95); background: var(--accent); }
+
+        #loader { display: none; position: fixed; inset: 0; background: black; z-index: 7000; flex-direction: column; align-items: center; justify-content: center; }
+        .spinner { width: 40px; height: 40px; border: 4px solid var(--accent); border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; transition: border-color 0.3s; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .report-marker { 
+            width: 22px; height: 22px; 
+            max-width: 22px; max-height: 22px;
+            border-radius: 50%; border: 2px solid white; box-shadow: 0 0 15px rgba(0,0,0,0.5); 
+            display: flex; align-items: center; justify-content: center; overflow: hidden; 
+            background-size: cover; background-position: center; 
+            position: relative;
+        }
+
+        .pulsing-effect {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background: var(--accent);
+            animation: pulse-out 1.5s infinite ease-out;
+            pointer-events: none;
+            z-index: -1;
+            transition: background 0.3s;
+        }
+
+        @keyframes pulse-out {
+            0% { transform: scale(0.5); opacity: 0.8; }
+            100% { transform: scale(2.5); opacity: 0; }
+        }
+
+        .config-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
+        .config-select { background: #27272a; border-radius: 10px; padding: 8px; color: white; border: 1px solid #3f3f46; font-size: 14px; }
+
+        #alert-modal {
+            display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+            z-index: 10000; align-items: center; justify-content: center; padding: 20px;
+            pointer-events: auto;
+        }
+        .modal-content {
+            background: var(--surface); border-radius: 32px; padding: 30px;
+            width: 100%; max-width: 380px; border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        #proximity-alert-frame {
+            display: none; position: absolute; bottom: 25px; left: 50%; transform: translateX(-50%) translateY(100%);
+            width: 92%; max-width: 420px; z-index: 3000; opacity: 0; transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        #proximity-alert-frame.active { display: block; opacity: 1; transform: translateX(-50%) translateY(0); }
+        .black-minimal-card {
+            background: #000000; border-radius: 28px; padding: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 30px 60px rgba(0,0,0,1);
+        }
+        .vote-btn {
+            flex: 1; padding: 14px; border-radius: 16px; font-size: 11px; font-weight: 800; 
+            text-transform: uppercase; transition: all 0.2s;
+        }
+        .vote-btn-red { background: rgba(255, 69, 58, 0.15); color: #ff453a; border: 1px solid rgba(255, 69, 58, 0.2); }
+        .vote-btn-green { background: rgba(48, 209, 88, 0.15); color: #30d158; border: 1px solid rgba(48, 209, 88, 0.2); }
+
+        .settings-menu-item {
+            background: rgba(255,255,255,0.03);
+            padding: 18px;
+            border-radius: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            cursor: pointer;
+            border: 1px solid rgba(255,255,255,0.05);
+            transition: all 0.2s;
+        }
+        .settings-menu-item:active { background: rgba(255,255,255,0.1); transform: scale(0.98); }
+        
+        .settings-list { display: none; }
+        .settings-list.active { display: block; animation: slideIn 0.3s ease; }
+        
+        @keyframes slideIn {
+            from { transform: translateX(20px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        .back-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--accent);
+            font-weight: 800;
+            text-transform: uppercase;
+            font-size: 12px;
+            margin-bottom: 25px;
+            cursor: pointer;
+            transition: color 0.3s;
+        }
+
+        .report-config-card {
+            background: rgba(255,255,255,0.03);
+            border-radius: 20px;
+            padding: 15px;
+            margin-bottom: 10px;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        .switch-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #71717a;
+            cursor: pointer;
+        }
+        .switch-container input { display: none; }
+        .switch-box {
+            width: 32px; height: 18px;
+            background: #27272a;
+            border-radius: 20px;
+            position: relative;
+            transition: all 0.3s;
+        }
+        .switch-box::after {
+            content: '';
+            position: absolute;
+            width: 14px; height: 14px;
+            background: white;
+            border-radius: 50%;
+            top: 2px; left: 2px;
+            transition: all 0.3s;
+        }
+        input:checked + .switch-box { background: var(--accent); }
+        input:checked + .switch-box::after { left: 16px; }
+
+        /* Estilos do Onboarding Wizard */
+        #onboarding-screen {
+            position: fixed; inset: 0; background: #000; z-index: 10000;
+            display: none; flex-direction: column; padding: 30px; justify-content: center; align-items: center; text-align: center;
+        }
+        .ob-progress-container { width: 100%; max-width: 300px; height: 4px; background: rgba(255,255,255,0.2); border-radius: 4px; margin-bottom: 40px; position: absolute; top: 40px; }
+        #ob-progress-bar { height: 100%; background: white; border-radius: 4px; transition: width 0.4s ease; width: 0%; }
+        .ob-step { display: none; flex-direction: column; align-items: center; width: 100%; max-width: 350px; }
+        .ob-step.active { display: flex; animation: fadeIn 0.4s ease; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Estilos do Player de Viagem */
+        #trip-player-ui {
+            position: fixed; inset: 0; z-index: 8000; pointer-events: none; display: none;
+        }
+        .player-control-card {
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+            width: 92%; max-width: 420px; background: rgba(18, 18, 20, 0.95);
+            backdrop-filter: blur(20px); border-radius: 28px; padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1); pointer-events: auto;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.9);
+        }
+
+    </style>
+</head>
+<body class="theme-light">
+
+    <!-- Tela de Onboarding -->
+    <div id="onboarding-screen">
+        <div class="ob-progress-container"><div id="ob-progress-bar"></div></div>
+        
+        <!-- Intro -->
+        <div id="ob-step-0" class="ob-step active">
+            <div class="mb-6 w-20 h-20 rounded-[25px] flex items-center justify-center bg-purple-600" style="background-color: var(--accent);">
+                <i data-lucide="shield-check" size="40" color="white"></i>
+            </div>
+            <h1 class="text-3xl font-black mb-4 text-white tracking-tight">CatsBlock Car</h1>
+            <p class="text-zinc-400 text-sm leading-relaxed mb-10 font-bold">Pra você começar melhor, faça essas etapas!</p>
+            <button onclick="showOnboardingStep(1)" class="w-full bg-white text-black py-4 rounded-2xl font-bold text-lg hover:scale-[1.02] transition-transform">Começar</button>
+        </div>
+
+        <!-- Passo 1: Localização -->
+        <div id="ob-step-1" class="ob-step">
+            <i data-lucide="map-pin" size="48" class="mb-6 text-white"></i>
+            <h2 class="text-2xl font-black mb-4 text-white">Permissão de Localização</h2>
+            <p class="text-zinc-400 text-xs leading-relaxed mb-8">Nós nunca vai armazenar a sua localização exata pra terceiros, será apenas armazenada uma vez sua localização pra cada reporte que você reportar, que é preciso pra aonde o reporte fique.</p>
+            <p class="text-[10px] text-zinc-500 font-bold uppercase mb-4">(Configurações > App > Catsblock car > Permissões > Localização > Exata)</p>
+            <button onclick="requestInitialGps()" id="btn-ob-gps" class="w-full bg-white text-black py-4 rounded-2xl font-bold text-lg hover:scale-[1.02] transition-transform">Avançar</button>
+        </div>
+
+        <!-- Passo 2: Login -->
+        <div id="ob-step-2" class="ob-step">
+            <i data-lucide="user-circle" size="48" class="mb-6 text-white"></i>
+            <h2 class="text-2xl font-black mb-4 text-white">Conta Google</h2>
+            <p class="text-zinc-400 text-sm leading-relaxed mb-8">Faça login para poder reportar acidentes, radares e obras e ajudar a comunidade.</p>
+            <button onclick="triggerLoginOb()" class="w-full bg-white text-black py-4 rounded-2xl font-bold text-lg hover:scale-[1.02] transition-transform flex justify-center items-center gap-2">
+                Ok (Fazer Login)
+            </button>
+        </div>
+
+        <!-- Passo 3: Termos -->
+        <div id="ob-step-3" class="ob-step">
+            <i data-lucide="file-text" size="48" class="mb-6 text-white"></i>
+            <h2 class="text-2xl font-black mb-4 text-white">Termos de Uso</h2>
+            <div class="text-zinc-400 text-[11px] leading-relaxed mb-6 text-left bg-white/5 p-4 rounded-xl border border-white/10 h-40 overflow-y-auto">
+                <p class="mb-3">Ao usar até app, você concorda que nós vai armazenar suas informações da sua conta Google pra nosso servidor firebase datastore, que é apenas email e nome completo. Que são públicos.</p>
+                <p>Você concorda que você enviar reportes falsos, spamar reportes ou qualquer violação, você terá a sua conta na lista negra e você não poderá mais usar sua conta em nosso app.</p>
+            </div>
+            <label class="flex items-center gap-3 w-full mb-8 cursor-pointer">
+                <input type="checkbox" id="ob-terms-check" class="w-5 h-5 rounded accent-purple-600" onchange="checkTerms()">
+                <span class="text-sm font-bold text-white">Eu concordo com isto</span>
+            </label>
+            <button id="btn-ob-finish" onclick="finishOnboarding()" disabled class="w-full bg-zinc-800 text-zinc-500 py-4 rounded-2xl font-bold text-lg transition-all">Aguarde 5s...</button>
+        </div>
+    </div>
+
+    <!-- UI Player de Viagem -->
+    <div id="trip-player-ui">
+        <div class="player-control-card">
+            <div class="flex justify-between items-center mb-4">
+                <span class="text-xs font-black tracking-widest text-zinc-400 uppercase">Visualizando Gravação</span>
+                <button onclick="closeTripPlayer()" class="text-white hover:text-red-500 transition-colors bg-white/10 p-2 rounded-full"><i data-lucide="x" size="18"></i></button>
+            </div>
+            <div class="flex items-center gap-4">
+                <button id="tp-play-btn" onclick="toggleTripPlayback()" class="w-14 h-14 rounded-full flex items-center justify-center text-white" style="background-color: var(--accent); box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+                    <i id="tp-play-icon" data-lucide="pause" size="24"></i>
+                </button>
+                <div class="flex-1 flex flex-col gap-2">
+                    <div class="flex justify-between text-[10px] text-zinc-400 font-bold uppercase">
+                        <span>Velocidade</span>
+                        <span id="tp-speed-display">1x</span>
+                    </div>
+                    <input type="range" id="tp-speed-slider" min="0.25" max="30" step="0.25" value="1" oninput="updatePlaybackSpeed()" class="w-full h-1.5 bg-zinc-700 rounded-lg appearance-none cursor-pointer" style="accent-color: var(--accent);">
+                    <div class="w-full h-1 bg-white/10 rounded-full mt-1 overflow-hidden relative">
+                        <div id="tp-progress-bar" class="h-full bg-white absolute top-0 left-0 w-0"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="loader">
+        <div class="spinner mb-4"></div>
+        <p class="text-xs font-bold uppercase tracking-widest text-zinc-500">Autenticando no Firebase...</p>
+    </div>
+
+    <div id="login-screen">
+        <div class="login-card">
+            <div class="w-16 h-16 bg-purple-600 rounded-2xl flex items-center justify-center mx-auto mb-6" style="background-color: var(--accent); transition: background 0.3s;">
+                <i data-lucide="log-in" color="white" size="32"></i>
+            </div>
+            <h2 class="text-xl font-black mb-4">Faça login pra Reportar Acidentes, radares, obras e muito mais.</h2>
+            <button onclick="handleLogin()" class="w-full bg-white text-black py-4 rounded-2xl font-bold flex items-center justify-center gap-3 hover:scale-[1.02] transition-transform">
+                <svg width="20" height="20" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.66l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 12-4.53z" fill="#EA4335"/></svg>
+                Login via Google
+            </button>
+            <p class="mt-8 text-[10px] text-zinc-500 opacity-60 leading-relaxed uppercase font-bold">
+                Ao fazer sessão, você concorda que suas informações da sua conta Google sejam armazenadas no meu servidor firebase e caso suas informações sejam vazadas, é a Google que deixou.
+            </p>
+            <button onclick="toggleLogin(false)" class="mt-4 text-zinc-500 text-xs font-bold uppercase tracking-widest">Agora não</button>
+        </div>
+    </div>
+
+    <div id="report-panel">
+        <div class="report-card relative">
+            <button onclick="toggleReportPanel(false)" class="absolute top-4 right-4 text-zinc-500"><i data-lucide="x" size="20"></i></button>
+            <h2 class="text-xl font-black mb-2 text-left">Reportar Evento</h2>
+            <p class="text-zinc-500 text-xs text-left mb-6 font-medium">Ajude outros motoristas informando o que está acontecendo na via.</p>
+            
+            <div class="grid grid-cols-2 gap-3" id="main-report-grid">
+                <div onclick="openSubMenu('transito-submenu')" class="report-option"><i data-lucide="car" class="text-yellow-500"></i><span class="text-[10px] font-bold uppercase">Trânsito</span></div>
+                <div onclick="openSubMenu('policia-submenu')" class="report-option"><i data-lucide="shield-alert" class="text-blue-500"></i><span class="text-[10px] font-bold uppercase">Polícia</span></div>
+                <div onclick="openSubMenu('acidente-submenu')" class="report-option"><i data-lucide="car-front" class="text-red-400"></i><span class="text-[10px] font-bold uppercase">Acidente</span></div>
+                <div onclick="submitReport('Insegurança')" class="report-option"><i data-lucide="alert-triangle" class="text-purple-500"></i><span class="text-[10px] font-bold uppercase">Insegurança</span></div>
+                <div onclick="openSubMenu('perigo-submenu')" class="report-option"><i data-lucide="triangle-alert" class="text-orange-500"></i><span class="text-[10px] font-bold uppercase">Perigo</span></div>
+                <div onclick="openSubMenu('faixa-submenu')" class="report-option"><i data-lucide="octagon-x" class="text-red-500"></i><span class="text-[10px] font-bold uppercase">Faixa Bloq.</span></div>
+                <div onclick="openSubMenu('interditada-submenu')" class="report-option"><i data-lucide="skull" class="text-red-600"></i><span class="text-[10px] font-bold uppercase">Interditada</span></div>
+                <div onclick="openSubMenu('tempo-submenu')" class="report-option"><i data-lucide="cloud-lightning" class="text-slate-400"></i><span class="text-[10px] font-bold uppercase">Tempo Ruim</span></div>
+                <div onclick="openRadarSubMenu()" class="report-option col-span-2"><i data-lucide="radar" class="text-purple-500"></i><span class="text-[10px] font-bold uppercase">Radar</span></div>
+            </div>
+
+            <div id="radar-submenu" class="hidden report-submenu grid grid-cols-2 gap-3">
+                <div onclick="submitReport('Radar', 'Trânsito')" class="report-option"><i data-lucide="traffic-light" class="text-yellow-400"></i><span class="text-[10px] font-bold uppercase">Trânsito</span></div>
+                <div onclick="submitReport('Radar', 'Velocidade')" class="report-option"><i data-lucide="gauge" class="text-red-500"></i><span class="text-[10px] font-bold uppercase">Velocidade</span></div>
+                <button onclick="backToMainReport()" class="col-span-2 mt-2 text-zinc-500 text-[10px] font-bold uppercase">Voltar</button>
+            </div>
+            
+            <div id="transito-submenu" class="hidden report-submenu grid grid-cols-2 gap-3">
+                <div onclick="submitReport('Trânsito', 'Trânsito Normal')" class="report-option"><i data-lucide="car" class="text-yellow-400"></i><span class="text-[10px] font-bold uppercase">Normal</span></div>
+                <div onclick="submitReport('Trânsito', 'Trânsito lento')" class="report-option"><i data-lucide="timer" class="text-orange-500"></i><span class="text-[10px] font-bold uppercase">Lento</span></div>
+                <div onclick="submitReport('Trânsito', 'Trânsito parado')" class="report-option"><i data-lucide="alert-circle" class="text-red-600"></i><span class="text-[10px] font-bold uppercase">Parado</span></div>
+                <button onclick="backToMainReport()" class="col-span-2 mt-2 text-zinc-500 text-[10px] font-bold uppercase">Voltar</button>
+            </div>
+            
+            <div id="policia-submenu" class="hidden report-submenu grid grid-cols-2 gap-3">
+                <div onclick="submitReport('Polícia', 'Polícia')" class="report-option"><i data-lucide="shield-alert" class="text-blue-500"></i><span class="text-[10px] font-bold uppercase">Polícia</span></div>
+                <div onclick="submitReport('Polícia', 'Polícia oculta')" class="report-option"><i data-lucide="eye-off" class="text-indigo-400"></i><span class="text-[10px] font-bold uppercase">Oculta</span></div>
+                <div onclick="submitReport('Polícia', 'Polícia no outro lado')" class="report-option"><i data-lucide="arrow-right-left" class="text-blue-400"></i><span class="text-[10px] font-bold uppercase">Outro Lado</span></div>
+                <div onclick="submitReport('Polícia', 'Radar móvel')" class="report-option"><i data-lucide="camera" class="text-cyan-500"></i><span class="text-[10px] font-bold uppercase">Radar Móvel</span></div>
+                <button onclick="backToMainReport()" class="col-span-2 mt-2 text-zinc-500 text-[10px] font-bold uppercase">Voltar</button>
+            </div>
+            
+            <div id="acidente-submenu" class="hidden report-submenu grid grid-cols-2 gap-3">
+                <div onclick="submitReport('Acidente', 'Acidente Menor')" class="report-option"><i data-lucide="car-front" class="text-orange-400"></i><span class="text-[10px] font-bold uppercase">Menor</span></div>
+                <div onclick="submitReport('Acidente', 'Acidente Maior')" class="report-option"><i data-lucide="flame" class="text-red-600"></i><span class="text-[10px] font-bold uppercase">Maior</span></div>
+                <div onclick="submitReport('Acidente', 'Acidente de batida')" class="report-option"><i data-lucide="zap" class="text-yellow-500"></i><span class="text-[10px] font-bold uppercase">Batida</span></div>
+                <div onclick="submitReport('Acidente', 'Acidente no outro lado')" class="report-option"><i data-lucide="move-horizontal" class="text-red-400"></i><span class="text-[10px] font-bold uppercase">Outro Lado</span></div>
+                <button onclick="backToMainReport()" class="col-span-2 mt-2 text-zinc-500 text-[10px] font-bold uppercase">Voltar</button>
+            </div>
+            
+            <div id="perigo-submenu" class="hidden report-submenu grid grid-cols-2 gap-3">
+                <div onclick="submitReport('Perigo', 'Perigo')" class="report-option"><i data-lucide="triangle-alert" class="text-yellow-500"></i><span class="text-[10px] font-bold uppercase">Perigo</span></div>
+                <div onclick="submitReport('Perigo', 'Buraco')" class="report-option"><i data-lucide="circle-dot" class="text-yellow-600"></i><span class="text-[10px] font-bold uppercase">Buraco</span></div>
+                <div onclick="submitReport('Perigo', 'Objeto na Rua')" class="report-option"><i data-lucide="box" class="text-orange-400"></i><span class="text-[10px] font-bold uppercase">Objeto</span></div>
+                <div onclick="submitReport('Perigo', 'Semáforo Quebrado')" class="report-option"><i data-lucide="lightbulb-off" class="text-yellow-400"></i><span class="text-[10px] font-bold uppercase">Semáforo</span></div>
+                <div onclick="submitReport('Perigo', 'Carro parado')" class="report-option"><i data-lucide="car-front" class="text-zinc-400"></i><span class="text-[10px] font-bold uppercase">Carro Parado</span></div>
+                <div onclick="submitReport('Perigo', 'Obras')" class="report-option"><i data-lucide="construction" class="text-orange-500"></i><span class="text-[10px] font-bold uppercase">Obras</span></div>
+                <button onclick="backToMainReport()" class="col-span-2 mt-2 text-zinc-500 text-[10px] font-bold uppercase">Voltar</button>
+            </div>
+            
+            <div id="faixa-submenu" class="hidden report-submenu grid grid-cols-2 gap-3">
+                <div onclick="submitReport('Faixa Bloqueada', 'Faixa bloqueada')" class="report-option"><i data-lucide="octagon-x" class="text-red-500"></i><span class="text-[10px] font-bold uppercase">Bloqueada</span></div>
+                <div onclick="submitReport('Faixa Bloqueada', 'Faixa da esquerda')" class="report-option"><i data-lucide="arrow-left-to-line" class="text-red-400"></i><span class="text-[10px] font-bold uppercase">Esquerda</span></div>
+                <div onclick="submitReport('Faixa Bloqueada', 'Faixa da direita')" class="report-option"><i data-lucide="arrow-right-to-line" class="text-red-400"></i><span class="text-[10px] font-bold uppercase">Direita</span></div>
+                <div onclick="submitReport('Faixa Bloqueada', 'Faixa do centro')" class="report-option"><i data-lucide="align-center" class="text-red-500"></i><span class="text-[10px] font-bold uppercase">Centro</span></div>
+                <button onclick="backToMainReport()" class="col-span-2 mt-2 text-zinc-500 text-[10px] font-bold uppercase">Voltar</button>
+            </div>
+            
+            <div id="interditada-submenu" class="hidden report-submenu grid grid-cols-2 gap-3">
+                <div onclick="submitReport('Via interditada', 'Obras')" class="report-option"><i data-lucide="cone" class="text-orange-600"></i><span class="text-[10px] font-bold uppercase">Obras</span></div>
+                <div onclick="submitReport('Via interditada', 'Perigo')" class="report-option"><i data-lucide="skull" class="text-red-600"></i><span class="text-[10px] font-bold uppercase">Perigo</span></div>
+                <div onclick="submitReport('Via interditada', 'Evento')" class="report-option"><i data-lucide="party-popper" class="text-purple-500"></i><span class="text-[10px] font-bold uppercase">Evento</span></div>
+                <button onclick="backToMainReport()" class="col-span-2 mt-2 text-zinc-500 text-[10px] font-bold uppercase">Voltar</button>
+            </div>
+            
+            <div id="tempo-submenu" class="hidden report-submenu grid grid-cols-2 gap-3">
+                <div onclick="submitReport('Tempo ruim', 'Tempo Ruim')" class="report-option"><i data-lucide="cloud-lightning" class="text-slate-400"></i><span class="text-[10px] font-bold uppercase">Tempo Ruim</span></div>
+                <div onclick="submitReport('Tempo ruim', 'Neblina')" class="report-option"><i data-lucide="cloud-fog" class="text-slate-300"></i><span class="text-[10px] font-bold uppercase">Neblina</span></div>
+                <div onclick="submitReport('Tempo ruim', 'Via escorregadia')" class="report-option"><i data-lucide="waves" class="text-blue-400"></i><span class="text-[10px] font-bold uppercase">Escorregadia</span></div>
+                <div onclick="submitReport('Tempo ruim', 'Alagamento')" class="report-option"><i data-lucide="waves" class="text-blue-600"></i><span class="text-[10px] font-bold uppercase">Alagamento</span></div>
+                <div onclick="submitReport('Tempo ruim', 'Neve na pista')" class="report-option"><i data-lucide="snowflake" class="text-white"></i><span class="text-[10px] font-bold uppercase">Neve</span></div>
+                <div onclick="submitReport('Tempo ruim', 'Nevoeiro')" class="report-option"><i data-lucide="cloud-fog" class="text-slate-400"></i><span class="text-[10px] font-bold uppercase">Nevoeiro</span></div>
+                <div onclick="submitReport('Tempo ruim', 'Gelo na pista')" class="report-option"><i data-lucide="snowflake" class="text-cyan-200"></i><span class="text-[10px] font-bold uppercase">Gelo</span></div>
+                <button onclick="backToMainReport()" class="col-span-2 mt-2 text-zinc-500 text-[10px] font-bold uppercase">Voltar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Splash removido por segurança de layout (substituído pelo Onboarding) -->
+    <div id="splash" style="display: none;"></div>
+
+    <div id="proximity-alert-frame">
+        <div class="black-minimal-card">
+            <div class="flex items-center gap-5">
+                <div id="prox-icon-container" class="w-14 h-14 bg-zinc-900 rounded-2xl flex items-center justify-center overflow-hidden bg-size-contain bg-no-repeat bg-center">
+                </div>
+                <div class="flex-1">
+                    <p id="prox-alert-text" class="text-white font-black text-lg leading-tight">Radar de Velocidade em 800m</p>
+                    <p id="prox-alert-sub" class="text-zinc-500 text-[10px] font-bold uppercase mt-1 tracking-widest">Alerta em tempo real</p>
+                </div>
+            </div>
+            
+            <div id="prox-vote-area" class="flex gap-3 mt-5 hidden">
+                <button onclick="voteViaAlerta(false)" class="vote-btn vote-btn-red">Não existe</button>
+                <button onclick="voteViaAlerta(true)" class="vote-btn vote-btn-green">Ainda está lá</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Banner PWA para Adicionar à Tela Inicial -->
+    <div id="pwa-prompt-card" class="fixed bottom-4 left-1/2 -translate-x-1/2 w-[92%] max-w-[380px] bg-[#121214] border border-white/10 rounded-2xl p-4 shadow-2xl z-[9999] hidden flex flex-col gap-3">
+        <p class="text-xs text-zinc-300 font-bold leading-relaxed">Você gostaria de adicionar o nosso site na sua tela inicial? Isso facilitará o acesso ao site de forma nativa e rápida.</p>
+        <div class="flex gap-2">
+            <button onclick="dismissPwaPrompt(true)" class="flex-1 bg-white/5 hover:bg-white/10 text-white rounded-xl py-2.5 text-[11px] font-extrabold uppercase transition-all">Não</button>
+            <button onclick="triggerPwaInstall()" class="flex-1 bg-purple-600 hover:bg-purple-700 text-white rounded-xl py-2.5 text-[11px] font-extrabold uppercase transition-all" style="background-color: var(--accent);">Sim</button>
+        </div>
+    </div>
+
+    <div id="alert-modal" onclick="closeAlertModal()">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div id="alert-icon-box" class="w-16 h-16 rounded-2xl flex items-center justify-center mb-6 overflow-hidden bg-cover bg-center"></div>
+            <h2 id="alert-title" class="text-2xl font-black mb-2">Título</h2>
+            <p id="alert-type" class="text-purple-500 font-bold text-xs uppercase tracking-widest mb-4" style="color: var(--accent);">Tipo do Alerta</p>
+            <div class="bg-white/5 p-4 rounded-2xl mb-6">
+                <p id="alert-desc-text" class="text-zinc-400 text-sm leading-relaxed"></p>
+                <div id="radar-lesson" class="mt-4 pt-4 border-t border-white/5 hidden">
+                    <p class="text-white font-bold text-xs mb-2">O que isso faz na sua vida?</p>
+                    <p id="lesson-text" class="text-xs italic" style="color: var(--accent); opacity: 0.8;"></p>
+                </div>
+                <div id="report-meta" class="mt-4 pt-4 border-t border-white/5 hidden">
+                   <p class="text-[9px] text-zinc-600 uppercase font-black mb-1">ID do Criador</p>
+                   <p id="creator-id" class="text-[10px] text-zinc-400 truncate mb-4"></p>
+                   <div class="flex gap-2">
+                       <button id="btn-not-exists" onclick="voteReport(false)" class="flex-1 bg-red-500/10 text-red-500 py-3 rounded-xl text-[10px] font-black uppercase">Não existe</button>
+                       <button id="btn-still-there" onclick="voteReport(true)" class="flex-1 bg-green-500/10 text-green-500 py-3 rounded-xl text-[10px] font-black uppercase">Ainda está lá</button>
+                   </div>
+                </div>
+            </div>
+            <button onclick="closeAlertModal()" class="btn-action !mb-0">Fechar</button>
+        </div>
+    </div>
+
+    <button id="settings-btn" onclick="toggleSettings(true)"><i data-lucide="settings"></i></button>
+
+    <div id="settings-panel">
+        <div class="flex justify-between items-center mb-8">
+            <h2 class="text-2xl font-black">Ajustes</h2>
+            <button onclick="toggleSettings(false)"><i data-lucide="x"></i></button>
+        </div>
+
+        <div id="settings-main-menu">
+            <div class="settings-menu-item" onclick="openSettingCategory('mapa')">
+                <div class="flex items-center gap-3">
+                    <i data-lucide="map" size="20"></i>
+                    <span class="font-bold">Mapa</span>
+                </div>
+                <i data-lucide="chevron-right" size="18"></i>
+            </div>
+            <div class="settings-menu-item" onclick="openSettingCategory('caminhos')">
+                <div class="flex items-center gap-3">
+                    <i data-lucide="route" size="20"></i>
+                    <span class="font-bold">Caminhos</span>
+                </div>
+                <i data-lucide="chevron-right" size="18"></i>
+            </div>
+            <div class="settings-menu-item" onclick="openSettingCategory('reportes')">
+                <div class="flex items-center gap-3">
+                    <i data-lucide="bell-ring" size="20"></i>
+                    <span class="font-bold">Reportes</span>
+                </div>
+                <i data-lucide="chevron-right" size="18"></i>
+            </div>
+            <div class="settings-menu-item" onclick="openSettingCategory('cores')">
+                <div class="flex items-center gap-3">
+                    <i data-lucide="palette" size="20"></i>
+                    <span class="font-bold">Cores</span>
+                </div>
+                <i data-lucide="chevron-right" size="18"></i>
+            </div>
+
+            <p class="text-[9px] text-zinc-600 font-black uppercase tracking-widest mt-10 text-center">Preferências salvas localmente</p>
+        </div>
+
+        <div id="list-mapa" class="settings-list">
+            <div class="back-btn" onclick="backToSettingsMain()"><i data-lucide="arrow-left" size="16"></i> Menu Principal</div>
+            <h3 class="text-xs font-black uppercase text-zinc-500 mb-6 tracking-widest">Visualização do Mapa</h3>
+            
+            <div class="config-row">
+                <span>Tema</span>
+                <select id="cfg-theme" class="config-select" onchange="saveConfig()">
+                    <option value="auto">Automático</option>
+                    <option value="dark">Modo Escuro</option>
+                    <option value="light">Modo Claro</option>
+                </select>
+            </div>
+            <div class="config-row">
+                <span>Tamanho da Seta</span>
+                <select id="cfg-arrow-size" class="config-select" onchange="saveConfig()">
+                    <option value="normal">Normal</option>
+                    <option value="small">Pequeno</option>
+                    <option value="large">Maior</option>
+                </select>
+            </div>
+            <div class="config-row">
+                <span>Zoom Automático</span>
+                <select id="cfg-auto-zoom" class="config-select" onchange="saveConfig()">
+                    <option value="true">Ativado</option>
+                    <option value="false">Desativado</option>
+                </select>
+            </div>
+            <div class="config-row">
+                <span>Gravar cada Viagem</span>
+                <select id="cfg-record-trips" class="config-select" onchange="saveConfig()">
+                    <option value="false">Desativada</option>
+                    <option value="true">Ativada</option>
+                </select>
+            </div>
+
+            <!-- Botão de Ver Gravações -->
+            <button onclick="openTripRecords()" class="w-full bg-white/5 border border-white/10 text-white font-bold text-sm py-4 rounded-xl uppercase tracking-wider mb-6 flex justify-center items-center gap-2 hover:bg-white/10 transition-colors">
+                <i data-lucide="film" size="18"></i> Ver Gravações
+            </button>
+
+            <!-- Novo botão de Personalização de Seta -->
+            <div class="settings-menu-item mt-2" onclick="openArrowCustomizer()">
+                <div class="flex items-center gap-3">
+                    <i data-lucide="paint-brush" size="20" style="color: var(--accent);"></i>
+                    <span class="font-bold text-sm">Personalizar a seta</span>
+                </div>
+                <button class="bg-purple-600 text-white font-bold text-xs py-2 px-4 rounded-xl uppercase tracking-wider" style="background-color: var(--accent);">Personalizar</button>
+            </div>
+        </div>
+
+        <!-- Nova lista de Customização da Seta -->
+        <div id="list-custom-arrow" class="settings-list">
+            <div class="back-btn" onclick="closeArrowCustomizer()"><i data-lucide="arrow-left" size="16"></i> Voltar</div>
+            <h3 class="text-xs font-black uppercase text-zinc-500 mb-6 tracking-widest">Personalizar a Seta</h3>
+            
+            <!-- Visualização em Tempo Real do Marcador Customizado -->
+            <div class="flex justify-center items-center py-8 mb-6 bg-white/5 rounded-3xl border border-white/5 relative overflow-hidden">
+                <div class="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.05)_0%,transparent_70%)]"></div>
+                <div id="custom-arrow-preview-container" class="relative w-24 h-24 flex items-center justify-center">
+                    <!-- Gerado dinamicamente via JS -->
+                </div>
+            </div>
+
+            <!-- Controles Bolinha Transparente -->
+            <div class="bg-white/3 border border-white/5 rounded-3xl p-5 mb-5">
+                <h4 class="text-xs font-black uppercase tracking-widest text-purple-500 mb-4" style="color: var(--accent);">Bolinha de Fundo</h4>
+                
+                <div class="mb-4">
+                    <div class="flex justify-between text-xs font-bold text-zinc-400 mb-2">
+                        <span>Transparência</span>
+                        <span id="preview-bg-opacity-val">0.25</span>
+                    </div>
+                    <input type="range" id="arrow-bg-opacity" min="0" max="1" step="0.05" value="0.25" oninput="updateArrowPreview()" class="w-full h-1 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-purple-500" style="accent-color: var(--accent);">
+                </div>
+
+                <div class="mb-4">
+                    <span class="text-xs font-bold text-zinc-400 block mb-2">Material</span>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button id="arrow-mat-glass" onclick="setArrowMaterial('glass')" class="py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider border border-white/10 bg-white/10 text-white">Vidro</button>
+                        <button id="arrow-mat-plastic" onclick="setArrowMaterial('plastic')" class="py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider border border-white/5 bg-transparent text-zinc-500">Plástico</button>
+                    </div>
+                </div>
+
+                <div>
+                    <span class="text-xs font-bold text-zinc-400 block mb-2">Cor da Bolinha</span>
+                    <div class="flex flex-wrap gap-2.5 justify-between">
+                        <button onclick="setArrowElementColor('bg', 'purple', '#A855F7')" class="w-8 h-8 rounded-full bg-[#A855F7] border-2 border-transparent hover:scale-110 active:scale-95 transition-all" title="Roxa"></button>
+                        <button onclick="setArrowElementColor('bg', 'green', '#22c55e')" class="w-8 h-8 rounded-full bg-[#22c55e] border-2 border-transparent hover:scale-110 active:scale-95 transition-all" title="Verde"></button>
+                        <button onclick="setArrowElementColor('bg', 'gray', '#71717a')" class="w-8 h-8 rounded-full bg-[#71717a] border-2 border-transparent hover:scale-110 active:scale-95 transition-all" title="Cinza"></button>
+                        <button onclick="setArrowElementColor('bg', 'pink', '#ec4899')" class="w-8 h-8 rounded-full bg-[#ec4899] border-2 border-transparent hover:scale-110 active:scale-95 transition-all" title="Rosa"></button>
+                        <button onclick="setArrowElementColor('bg', 'blue', '#3b82f6')" class="w-8 h-8 rounded-full bg-[#3b82f6] border-2 border-transparent hover:scale-110 active:scale-95 transition-all" title="Azul"></button>
+                        <button onclick="setArrowElementColor('bg', 'red', '#ef4444')" class="w-8 h-8 rounded-full bg-[#ef4444] border-2 border-transparent hover:scale-110 active:scale-95 transition-all" title="Vermelho"></button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Controles Seta Central -->
+            <div class="bg-white/3 border border-white/5 rounded-3xl p-5 mb-6">
+                <h4 class="text-xs font-black uppercase tracking-widest text-purple-500 mb-4" style="color: var(--accent);">Seta Central</h4>
+                
+                <div class="mb-4">
+                    <span class="text-xs font-bold text-zinc-500 block mb-1 uppercase">Transparência & Material</span>
+                    <span class="text-[10px] text-zinc-500 italic block leading-normal">Propriedades travadas por segurança de segurança rodoviária de alto desempenho.</span>
+                </div>
+
+                <div>
+                    <span class="text-xs font-bold text-zinc-400 block mb-2">Cor da Seta</span>
+                    <div class="flex flex-wrap gap-2.5 justify-between">
+                        <button onclick="setArrowElementColor('fg', 'purple', '#A855F7')" class="w-8 h-8 rounded-full bg-[#A855F7] border-2 border-transparent hover:scale-110 active:scale-95 transition-all" title="Roxa"></button>
+                        <button onclick="setArrowElementColor('fg', 'green', '#22c55e')" class="w-8 h-8 rounded-full bg-[#22c55e] border-2 border-transparent hover:scale-110 active:scale-95 transition-all" title="Verde"></button>
+                        <button onclick="setArrowElementColor('fg', 'gray', '#71717a')" class="w-8 h-8 rounded-full bg-[#71717a] border-2 border-transparent hover:scale-110 active:scale-95 transition-all" title="Cinza"></button>
+                        <button onclick="setArrowElementColor('fg', 'pink', '#ec4899')" class="w-8 h-8 rounded-full bg-[#ec4899] border-2 border-transparent hover:scale-110 active:scale-95 transition-all" title="Rosa"></button>
+                        <button onclick="setArrowElementColor('fg', 'blue', '#3b82f6')" class="w-8 h-8 rounded-full bg-[#3b82f6] border-2 border-transparent hover:scale-110 active:scale-95 transition-all" title="Azul"></button>
+                        <button onclick="setArrowElementColor('fg', 'red', '#ef4444')" class="w-8 h-8 rounded-full bg-[#ef4444] border-2 border-transparent hover:scale-110 active:scale-95 transition-all" title="Vermelho"></button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Ações Finais -->
+            <div class="flex flex-col gap-2.5 mb-12">
+                <button onclick="saveArrowCustomization()" class="w-full bg-white text-black font-extrabold text-sm py-4 rounded-2xl uppercase tracking-wider transition-all active:scale-98">Salvar</button>
+                <button onclick="resetArrowToDefault()" class="w-full bg-white/5 border border-white/10 text-zinc-400 font-extrabold text-xs py-3.5 rounded-2xl uppercase tracking-wider transition-all active:scale-98 hover:text-white">Voltar a seta pra padrão</button>
+            </div>
+        </div>
+
+        <div id="list-trips" class="settings-list">
+            <div class="back-btn" onclick="closeTripRecords()"><i data-lucide="arrow-left" size="16"></i> Voltar</div>
+            <h3 class="text-xs font-black uppercase text-zinc-500 mb-6 tracking-widest">Viagens Gravadas</h3>
+            <div id="trips-container" class="max-h-[60vh] overflow-y-auto pr-2 space-y-3">
+                <!-- Viagens populadas aqui via JS -->
+            </div>
+        </div>
+
+        <div id="list-caminhos" class="settings-list">
+            <div class="back-btn" onclick="backToSettingsMain()"><i data-lucide="arrow-left" size="16"></i> Menu Principal</div>
+            <h3 class="text-xs font-black uppercase text-zinc-500 mb-6 tracking-widest">Algoritmo de Rota</h3>
+            
+            <div class="config-row">
+                <span>Preferência</span>
+                <select id="cfg-path-algo" class="config-select" onchange="saveConfig()">
+                    <option value="fast">Rápido</option>
+                    <option value="balanced">Não tão rápido mas seguro</option>
+                    <option value="safe_slow">Seguro mas Lento</option>
+                </select>
+            </div>
+            <p class="text-[10px] text-zinc-500 italic mt-4 leading-relaxed">
+                Nota: Os modos "Rápido" e "Não tão rápido mas seguro" desviam automaticamente de ruas com reportes de trânsito, obras ou bloqueios.
+            </p>
+        </div>
+
+        <div id="list-reportes" class="settings-list">
+            <div class="back-btn" onclick="backToSettingsMain()"><i data-lucide="arrow-left" size="16"></i> Menu Principal</div>
+            <h3 class="text-xs font-black uppercase text-zinc-500 mb-6 tracking-widest">Gerenciar Visibilidade e Alertas</h3>
+            
+            <div id="report-config-container" class="max-h-[60vh] overflow-y-auto pr-2">
+            </div>
+        </div>
+
+        <div id="list-cores" class="settings-list">
+            <div class="back-btn" onclick="backToSettingsMain()"><i data-lucide="arrow-left" size="16"></i> Menu Principal</div>
+            <h3 class="text-xs font-black uppercase text-zinc-500 mb-6 tracking-widest">Identidade Visual</h3>
+            
+            <p class="text-[10px] text-zinc-500 mb-4 font-bold uppercase">Selecione a cor de destaque</p>
+            <div class="flex gap-4 mb-6">
+                <div onclick="setAppColor('purple')" id="color-purple" class="w-10 h-10 rounded-full bg-[#A855F7] border-2 border-transparent cursor-pointer transition-all hover:scale-110"></div>
+                <div onclick="setAppColor('blue')" id="color-blue" class="w-10 h-10 rounded-full bg-[#3b82f6] border-2 border-transparent cursor-pointer transition-all hover:scale-110"></div>
+                <div onclick="setAppColor('green')" id="color-green" class="w-10 h-10 rounded-full bg-[#22c55e] border-2 border-transparent cursor-pointer transition-all hover:scale-110"></div>
+                <div onclick="setAppColor('gray')" id="color-gray" class="w-10 h-10 rounded-full bg-[#71717a] border-2 border-transparent cursor-pointer transition-all hover:scale-110"></div>
+                <div onclick="setAppColor('red')" id="color-red" class="w-10 h-10 rounded-full bg-[#ef4444] border-2 border-transparent cursor-pointer transition-all hover:scale-110"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="speed-badge" id="speed-ui">
+        <span class="block text-3xl font-black text-white" id="speed-val">0</span>
+        <span class="block text-[10px] text-zinc-500 font-bold uppercase">km/h</span>
+    </div>
+
+    <button id="report-trigger-btn" onclick="initiateReport()">
+        <i data-lucide="megaphone" size="24"></i>
+    </button>
+
+    <div class="ui-container top-ui" id="ui-top">
+        <div id="instruction-panel">
+            <div id="inst-icon" class="bg-white/20 p-3 rounded-2xl" data-current-icon="arrow-up">
+                <i data-lucide="arrow-up" size="32"></i>
+            </div>
+            <div>
+                <p id="inst-dist" class="text-[10px] font-black opacity-80 uppercase tracking-widest">Aguardando...</p>
+                <p id="inst-text" class="text-xl font-black leading-tight" data-translated="Siga o trajeto">Siga o trajeto</p>
+            </div>
+        </div>
+
+        <div class="glass-card" id="search-card">
+            <div class="flex items-center gap-3">
+                <i data-lucide="search" size="18" style="color: var(--accent); transition: color 0.3s;"></i>
+                <input type="text" placeholder="Para onde vamos?" id="dest-input" class="bg-transparent border-none outline-none text-white w-full font-medium">
+            </div>
+            <div id="results" class="mt-3 max-h-60 overflow-y-auto hidden bg-[#0c0c0e] rounded-xl border border-white/5 shadow-2xl"></div>
+        </div>
+    </div>
+
+    <div id="viewport">
+        <div id="map"></div>
+    </div>
+
+    <!-- Frame de Viagem Modificado para os Estados (Expandido / Minimizado) -->
+    <div class="bottom-ui" id="trip-card">
+        <div class="glass-card relative" id="trip-card-inner">
+            <!-- Botões de Minimização / Expansão -->
+            <div class="absolute top-4 right-4 flex flex-col gap-2 items-center z-[2005]">
+                <button id="btn-minimize-trip" onclick="toggleTripMinimize(true)" class="text-zinc-500 hover:text-white p-1" title="Minimizar">
+                    <i data-lucide="minus" size="20"></i>
+                </button>
+                <button id="btn-expand-trip" onclick="toggleTripMinimize(false)" class="text-zinc-500 hover:text-white p-1 hidden" title="Expandir">
+                    <i data-lucide="chevron-up" size="20"></i>
+                </button>
+                <button onclick="clearSelection()" class="text-zinc-500 hover:text-white p-1" title="Fechar">
+                    <i data-lucide="x" size="20"></i>
+                </button>
+            </div>
+            
+            <!-- Grupo de Layouts Secundários (Ocultados no modo Minimizado e Expandido da navegação) -->
+            <div id="trip-non-nav-group">
+                <div id="mode-selector" class="flex justify-between gap-2 mb-4 pr-16">
+                    <button onclick="setTravelMode('car')" class="mode-btn active" id="mode-car"><i data-lucide="car" size="18"></i></button>
+                    <button onclick="setTravelMode('uber')" class="mode-btn" id="mode-uber"><i data-lucide="smartphone" size="18"></i></button>
+                    <button onclick="setTravelMode('bus')" class="mode-btn" id="mode-bus"><i data-lucide="bus" size="18"></i></button>
+                    <button onclick="setTravelMode('bike')" class="mode-btn" id="mode-bike"><i data-lucide="bike" size="18"></i></button>
+                    <button onclick="setTravelMode('walk')" class="mode-btn" id="mode-walk"><i data-lucide="person-standing" size="18"></i></button>
+                </div>
+
+                <div class="mb-4 pr-16">
+                    <p class="text-zinc-500 text-[10px] font-bold uppercase tracking-widest mb-1">Destino</p>
+                    <p id="dest-name" class="text-white font-bold text-lg truncate">--</p>
+                </div>
+            </div>
+
+            <!-- Dados Compartilhados da Viagem (Sempre Visíveis e Atualizados em Tempo Real) -->
+            <div id="trip-data-grid" class="grid grid-cols-2 gap-3 mb-4 pr-12">
+                <div class="cost-badge">
+                    <p class="text-[9px] text-zinc-500 font-bold uppercase mb-1">Tempo Est.</p>
+                    <p id="eta-val" class="font-black text-lg" style="color: var(--accent); transition: color 0.3s;">--</p>
+                </div>
+                <div class="cost-badge" id="extra-info-box">
+                    <p class="text-[9px] text-zinc-500 font-bold uppercase mb-1" id="extra-info-label">Combustível</p>
+                    <p id="extra-info-val" class="text-white font-black text-lg leading-tight">--</p>
+                </div>
+            </div>
+
+            <!-- Botões de Navegação -->
+            <div id="action-area">
+                <button onclick="toggleNav(true)" class="btn-action">Iniciar Navegação</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+
+    <script>
+        let map, userMarker, destMarker, routingControl, alertLayer, tileLayer;
+        let userPos = null, prevPos = null, destinationLatLng = null;
+        let lastApiPos = null; 
+        let rotation = 0, isNavigating = false, currentSpeed = 0, travelMode = 'car';
+        let lastRawInstruction = "";
+        const synth = window.speechSynthesis;
+
+        let activeReportsLayer, slowTrafficPolyline;
+        window.currentAuthUser = null;
+        let lastSelectedReportId = null;
+
+        let deferredInstallPrompt = null;
+
+        let interpolatedPos = null; 
+        let lastGpsTimestamp = 0;
+        let signalLostMode = false;
+        let smoothAnimationId = null;
+
+        let isCorrectingPredictiveError = false; 
+        let isFreezeActive = false;             
+        let frozenRotation = 0;                  
+        let freezeStartTime = 0;
+        let offRouteCount = 0;
+        let simulatedTargetPos = null; 
+        let lastTickTime = 0;
+
+        let darkPurplePolyline = null;
+        let lastAnnounced15mInstIndex = -1;
+
+        // Controle de Auto Foco Regra de Ouro 1
+        let autoFocusLoopInterval = null;
+        let inactivityTimeout = null;
+
+        // Trip Recording Regra de Ouro 3
+        let isRecordingTrip = false;
+        let currentTripData = null;
+        let tripRecordInterval = null;
+        let isPlaybackMode = false;
+        let playbackFrameIndex = 0;
+        let playbackInterval = null;
+        let playbackSpeed = 1;
+
+        let arrowStyle = {
+            bgOpacity: 0.25,
+            bgMaterial: 'glass', 
+            bgColor: '#A855F7',   
+            bgName: 'purple',
+            fgColor: '#A855F7',   
+            fgName: 'purple'
+        };
+
+        let tempArrowStyle = { ...arrowStyle };
+
+        let config = { 
+            theme: 'auto', 
+            pathAlgo: 'fast', 
+            uiColor: 'purple',
+            arrowSize: 'normal',
+            autoZoom: 'true',
+            recordTrips: 'false',
+            reports: {
+                'Polícia': { alert: true, show: true },
+                'Perigo': { alert: true, show: true },
+                'Faixa Bloqueada': { alert: true, show: true },
+                'Radar': { alert: true, show: true },
+                'Acidente': { alert: true, show: true },
+                'Trânsito': { alert: true, show: true },
+                'Insegurança': { alert: true, show: true },
+                'Via interditada': { alert: true, show: true },
+                'Tempo ruim': { alert: true, show: true }
+            }
+        };
+
+        let activeAlertaReportId = null;
+        let alertaPassou = false;
+        let alertaFimTimeout = null;
+        let jaVotouNesse = new Set(); 
+        let alertasMostradosNestaViagem = new Set();
+
+        const RADAR_VELOCIDADE_IMG = "https://raw.githubusercontent.com/catsblock/Catsblock-Car/refs/heads/main/RadarVelocidade.png";
+        const RADAR_TRANSITO_IMG = "https://raw.githubusercontent.com/catsblock/Catsblock-Car/refs/heads/main/RadarTrânsito.png";
+
+        const RADAR_DATA = {
+            fixed: { title: "Radar de Velocidade", desc: "Monitoramento contínuo de velocidade.", lesson: "Ele evita que você corra demais, preservando os freios do seu carro.", type: "VELOCIDADE", icon: "gauge", class: "radar-speed", externalIcon: RADAR_VELOCIDADE_IMG },
+            traffic_light: { title: "Radar de Semáforo", desc: "Captura avanço de sinal vermelho.", lesson: "Protege sua vida de colisões laterais.", type: "TRÂNSITO", icon: "traffic-light", class: "radar-traffic", externalIcon: RADAR_TRANSITO_IMG },
+            bus_lane: { title: "Fiscalização de Faixa", desc: "Monitora o uso exclusivo de faixas de ônibus.", lesson: "Deixar a faixa livre melhora o fluxo da cidade.", type: "ÔNIBUS", icon: "bus", class: "radar-bus" }
+        };
+
+        const colorMap = { purple: '#A855F7', blue: '#3b82f6', green: '#22c55e', gray: '#71717a', red: '#ef4444' };
+        
+        // Regra 4: Controle de Onboarding
+        window.isWaitingForLoginOb = false;
+
+        function startOnboarding() {
+            document.getElementById('onboarding-screen').style.display = 'flex';
+            showOnboardingStep(0);
+        }
+
+        function showOnboardingStep(stepIdx) {
+            document.querySelectorAll('.ob-step').forEach(el => el.classList.remove('active'));
+            document.getElementById('ob-step-' + stepIdx).classList.add('active');
+            
+            const totalSteps = 3; 
+            const pct = stepIdx === 0 ? 0 : Math.max(10, (stepIdx / totalSteps) * 100);
+            document.getElementById('ob-progress-bar').style.width = `${pct}%`;
+        }
+
+        function requestInitialGps() {
+            const btn = document.getElementById('btn-ob-gps');
+            btn.innerText = "Buscando satélites...";
+            btn.disabled = true;
+
+            navigator.geolocation.getCurrentPosition(pos => {
+                showOnboardingStep(2);
+            }, err => {
+                alert("GPS é obrigatório. Por favor, ative a localização exata nas configurações.");
+                btn.innerText = "Tentar Novamente";
+                btn.disabled = false;
+            }, {enableHighAccuracy: true});
+        }
+
+        function triggerLoginOb() {
+            if (window.currentAuthUser) {
+                showOnboardingStep(3);
+            } else {
+                window.isWaitingForLoginOb = true;
+                handleLogin();
+            }
+        }
+
+        function checkTerms() {
+            const checked = document.getElementById('ob-terms-check').checked;
+            const btn = document.getElementById('btn-ob-finish');
+            if (checked) {
+                btn.disabled = false;
+                btn.classList.remove('bg-zinc-800', 'text-zinc-500');
+                btn.classList.add('bg-white', 'text-black');
+                
+                let time = 5;
+                btn.innerText = `Aguarde ${time}s...`;
+                btn.disabled = true;
+                
+                const timerInt = setInterval(() => {
+                    time--;
+                    if(time > 0) {
+                        btn.innerText = `Aguarde ${time}s...`;
+                    } else {
+                        clearInterval(timerInt);
+                        btn.innerText = "Concordar e Começar";
+                        btn.disabled = false;
+                    }
+                }, 1000);
+            } else {
+                btn.disabled = true;
+                btn.classList.add('bg-zinc-800', 'text-zinc-500');
+                btn.classList.remove('bg-white', 'text-black');
+                btn.innerText = "Aguarde 5s...";
+            }
+        }
+
+        function finishOnboarding() {
+            localStorage.setItem('catsblock_onboarding_done', 'true');
+            document.getElementById('onboarding-screen').style.display = 'none';
+            requestGpsAndInit();
+        }
+
+        // ======================================
+
+        function setAppColor(color) {
+            config.uiColor = color;
+            document.documentElement.style.setProperty('--accent', colorMap[color]);
+            document.querySelectorAll('[id^="color-"]').forEach(el => el.style.borderColor = 'transparent');
+            document.getElementById('color-' + color).style.borderColor = 'white';
+            saveConfig();
+            
+            if(userPos && map) {
+                 updateUserMarker(interpolatedPos || userPos, frozenRotation || rotation, isNavigating);
+            }
+        }
+
+        function initiateReport() {
+            if (window.currentAuthUser) {
+                toggleReportPanel(true);
+            } else {
+                toggleLogin(true);
+            }
+        }
+
+        function toggleLogin(show) {
+            document.getElementById('login-screen').style.display = show ? 'flex' : 'none';
+        }
+
+        function toggleReportPanel(show) {
+            document.getElementById('report-panel').style.display = show ? 'flex' : 'none';
+            backToMainReport();
+        }
+
+        async function handleLogin() {
+            const loader = document.getElementById('loader');
+            if (loader) loader.style.display = 'flex';
+            
+            try {
+                if (!window.fb || !window.fb.auth || !window.fb.provider) {
+                    throw new Error("Serviços Firebase não inicializados no escopo global.");
+                }
+
+                const result = await window.fb.signInWithPopup(window.fb.fbAuth || window.fb.auth, window.fb.provider);
+                window.currentAuthUser = result.user;
+                toggleLogin(false);
+                if(!window.isWaitingForLoginOb) {
+                    toggleReportPanel(true);
+                }
+            } catch (error) {
+                console.error("Login failed:", error);
+            } finally {
+                if (loader) loader.style.display = 'none';
+            }
+        }
+
+        function openSubMenu(id) {
+            document.getElementById('main-report-grid').classList.add('hidden');
+            document.querySelectorAll('.report-submenu').forEach(el => el.classList.add('hidden'));
+            if(document.getElementById(id)) {
+                document.getElementById(id).classList.remove('hidden');
+            }
+            lucide.createIcons();
+        }
+
+        function openRadarSubMenu() {
+            openSubMenu('radar-submenu');
+        }
+
+        function backToMainReport() {
+            document.getElementById('main-report-grid').classList.remove('hidden');
+            document.querySelectorAll('.report-submenu').forEach(el => el.classList.add('hidden'));
+        }
+
+        async function submitReport(type, subtype = "") {
+            if (!userPos || !window.currentAuthUser) return;
+
+            if (type === 'Radar') {
+                if (window.currentAuthUser.uid !== 'hvVUwrQn6ZQIQFbHBars25NPW9P2') {
+                    toggleReportPanel(false);
+                    showAlertModal(
+                        'ACESSO NEGADO', 
+                        'Apenas Funcionários', 
+                        'Você não pode reportar aqui. Apenas funcionários podem reportar. Pra reportar um radar e funcionários avaliar, Vá no perfil do Tiktok chamado S4ttings, entre no pv de este perfil e envie a localização de aonde o radar está e nossa equipe vai analisar.', 
+                        'shield-alert'
+                    );
+                    return;
+                }
+            }
+
+            const now = new Date();
+            let expiryDate = new Date(now);
+
+            switch(type) {
+                case 'Trânsito':
+                    if (subtype === 'Trânsito Normal') expiryDate.setHours(now.getHours() + 7);
+                    else if (subtype === 'Trânsito parado') expiryDate.setDate(now.getDate() + 1);
+                    else expiryDate.setHours(now.getHours() + 10);
+                    break;
+                case 'Polícia': 
+                    if (subtype === 'Radar móvel') expiryDate.setDate(now.getDate() + 7);
+                    else if (subtype === 'Polícia oculta') expiryDate.setDate(now.getDate() + 3);
+                    else expiryDate.setDate(now.getDate() + 1);
+                    break;
+                case 'Acidente': 
+                    expiryDate.setDate(now.getDate() + 2);
+                    break;
+                case 'Insegurança':
+                    expiryDate.setDate(now.getDate() + 7);
+                    break;
+                case 'Perigo':
+                    if (subtype === 'Obras') expiryDate.setMonth(now.getMonth() + 6);
+                    else expiryDate.setDate(now.getDate() + 3);
+                    break;
+                case 'Faixa Bloqueada': 
+                    expiryDate.setMonth(now.getMonth() + 3); 
+                    break;
+                case 'Via interditada':
+                    if (subtype === 'Evento') expiryDate.setMonth(now.getMonth() + 1);
+                    else expiryDate.setMonth(now.getMonth() + 6);
+                    break;
+                case 'Tempo ruim':
+                    expiryDate.setDate(now.getDate() + 1);
+                    break;
+                case 'Radar': 
+                    expiryDate.setFullYear(now.getFullYear() + 5); 
+                    break;
+                default: 
+                    expiryDate.setHours(now.getHours() + 4);
+            }
+
+            const reportData = {
+                type: type,
+                subtype: subtype,
+                lat: userPos[0],
+                lng: userPos[1],
+                creator: window.currentAuthUser.uid,
+                createdAt: window.fb.serverTimestamp(),
+                expiresAt: expiryDate, 
+                votes: [],
+                votes_exists: 0,
+                votes_not_exists: 0,
+                status: 'active'
+            };
+
+            try {
+                const reportsRef = window.fb.collection(window.fb.db, 'artifacts', window.fb.appId, 'public', 'data', 'reports');
+                const docId = `${Date.now()}_${window.currentAuthUser.uid}`;
+                await window.fb.setDoc(window.fb.doc(reportsRef, docId), reportData);
+                
+                toggleReportPanel(false);
+            } catch (e) {
+                console.error("Erro ao salvar report", e);
+            }
+        }
+
+        let reportCache = []; 
+
+        function listenToReports() {
+            const reportsRef = window.fb.collection(window.fb.db, 'artifacts', window.fb.appId, 'public', 'data', 'reports');
+            
+            window.fb.onSnapshot(window.fb.query(reportsRef), (snapshot) => {
+                reportCache = [];
+                snapshot.forEach(docSnap => {
+                    const data = docSnap.data();
+                    data.id = docSnap.id;
+                    const expiry = data.expiresAt.toDate ? data.expiresAt.toDate() : new Date(data.expiresAt);
+                    if (expiry > new Date()) {
+                        reportCache.push(data);
+                    }
+                });
+                renderFilteredReports();
+            }, (error) => console.error("Erro snapshot:", error));
+
+            setInterval(() => {
+                renderFilteredReports();
+            }, 10000);
+        }
+
+        function renderFilteredReports() {
+            if (!userPos) return;
+
+            const currentZoom = map.getZoom();
+            const isMovingEnough = currentSpeed >= 4;
+            
+            if (isNavigating && !isMovingEnough && !isPlaybackMode) {
+                activeReportsLayer.clearLayers();
+                if (slowTrafficPolyline) { 
+                    if (Array.isArray(slowTrafficPolyline)) {
+                        slowTrafficPolyline.forEach(p => { if(map.hasLayer(p)) map.removeLayer(p); });
+                    } else {
+                        if (map.hasLayer(slowTrafficPolyline)) map.removeLayer(slowTrafficPolyline);
+                    }
+                    slowTrafficPolyline = null; 
+                }
+                return; 
+            }
+
+            activeReportsLayer.clearLayers();
+            if (slowTrafficPolyline) { 
+                if (Array.isArray(slowTrafficPolyline)) {
+                    slowTrafficPolyline.forEach(p => { if(map.hasLayer(p)) map.removeLayer(p); });
+                } else {
+                    if (map.hasLayer(slowTrafficPolyline)) map.removeLayer(slowTrafficPolyline);
+                }
+                slowTrafficPolyline = null; 
+            }
+            
+            let trafficReportsToDraw = [];
+        
+            const visibleReports = reportCache.filter(report => {
+                const reportCfg = config.reports[report.type] || { show: true };
+                if (!reportCfg.show) return false;
+
+                if (report.type === 'Radar') {
+                    if (report.creator !== 'hvVUwrQn6ZQIQFbHBars25NPW9P2') return false;
+                    if (currentZoom <= 16) return false;
+                }
+
+                const distToUser = getDistance(userPos, [report.lat, report.lng]);
+                
+                if (distToUser > 2000) {
+                    return false;
+                }
+
+                if (isNavigating && routingControl && routingControl._selectedRoute) {
+                    const pathCoords = routingControl._selectedRoute.coordinates;
+                    let isOnPath = false;
+                    for (let i = 0; i < pathCoords.length; i++) {
+                        const d = getDistance([report.lat, report.lng], [pathCoords[i].lat, pathCoords[i].lng]);
+                        if (d <= 30) {
+                            isOnPath = true;
+                            break;
+                        }
+                    }
+                    if (!isOnPath) return false;
+                }
+
+                return true;
+            });
+
+            visibleReports.forEach(data => {
+                if (data.type === 'Trânsito') {
+                    trafficReportsToDraw.push(data);
+                }
+
+                const distToUser = getDistance(userPos, [data.lat, data.lng]);
+                const markerColor = getReportColor(data.type, data.subtype);
+                const markerIconUrl = getReportIcon(data.type, data.subtype, true);
+                
+                let iconHtml = '';
+                const isPulsing = distToUser <= 250;
+                const pulsingHtml = isPulsing ? '<div class="pulsing-effect"></div>' : '';
+
+                const isMiniMode = currentZoom <= 15;
+
+                if (isMiniMode) {
+                    iconHtml = `<div style="width:8px; height:8px; background:${markerColor}; border-radius:50%; border:1.5px solid white; position:relative; box-shadow: 0 0 5px rgba(0,0,0,0.5);">${pulsingHtml}</div>`;
+                } else if (markerIconUrl.startsWith('http')) {
+                    iconHtml = `<div class="report-marker" style="background-image:url('${markerIconUrl}'); border:none; box-shadow:none;">${pulsingHtml}</div>`;
+                } else {
+                    iconHtml = `<div class="report-marker" style="background:${markerColor}">${pulsingHtml}<i data-lucide="${markerIconUrl}" color="white" size="10"></i></div>`;
+                }
+
+                const markerIcon = L.divIcon({
+                    className: 'custom-div-icon',
+                    html: iconHtml,
+                    iconSize: isMiniMode ? [8, 8] : [22, 22],
+                    iconAnchor: isMiniMode ? [4, 4] : [11, 11]
+                });
+                
+                const marker = L.marker([data.lat, data.lng], { icon: markerIcon });
+                marker.on('click', () => {
+                    showReportDetail(data.id, data);
+                });
+                marker.addTo(activeReportsLayer);
+            });
+
+            if (trafficReportsToDraw.length > 0 && routingControl && routingControl._selectedRoute) {
+                slowTrafficPolyline = [];
+                const routeCoords = routingControl._selectedRoute.coordinates;
+                
+                trafficReportsToDraw.forEach(report => {
+                    let color = '#eab308';
+                    let maxDist = 275;
+                    if (report.subtype === 'Trânsito parado') {
+                        color = '#ef4444';
+                        maxDist = 750;
+                    } else if (report.subtype === 'Trânsito lento') {
+                        color = '#f97316';
+                        maxDist = 500;
+                    }
+                    
+                    let snap = snapToRoute([report.lat, report.lng], routeCoords);
+                    let idx = snap.closestIdx;
+                    let exactPt = snap.snapped;
+
+                    let segment = [L.latLng(exactPt[0], exactPt[1])];
+                    let accumulated = 0;
+                    let currentPt = exactPt;
+
+                    for (let i = idx; i >= 0; i--) {
+                        let nextPt = [routeCoords[i].lat, routeCoords[i].lng];
+                        let dist = getDistance(currentPt, nextPt);
+                        if (accumulated + dist >= maxDist) {
+                            let remaining = maxDist - accumulated;
+                            let ratio = remaining / dist;
+                            let endLat = currentPt[0] + (nextPt[0] - currentPt[0]) * ratio;
+                            let endLng = currentPt[1] + (nextPt[1] - currentPt[1]) * ratio;
+                            segment.unshift(L.latLng(endLat, endLng));
+                            break;
+                        }
+                        segment.unshift(L.latLng(nextPt[0], nextPt[1]));
+                        accumulated += dist;
+                        currentPt = nextPt;
+                    }
+
+                    let pl = L.polyline(segment, { color: color, weight: 6, opacity: 0.9 }).addTo(activeReportsLayer);
+                    slowTrafficPolyline.push(pl);
+                });
+            }
+            
+            lucide.createIcons();
+        }
+
+        function getReportColor(type, subtype = "") {
+            if (type === 'Radar') {
+                if (subtype === 'Velocidade') return '#ff453a';
+                if (subtype === 'Trânsito') return '#facc15';
+                return 'var(--accent)';
+            }
+            if (type === 'Trânsito') {
+                if (subtype === 'Trânsito parado') return '#ef4444';
+                if (subtype === 'Trânsito Normal') return '#eab308';
+                return '#f97316';
+            }
+            switch(type) {
+                case 'Polícia': return '#3b82f6';
+                case 'Obras': return '#f97316';
+                case 'Faixa Bloqueada': return '#ef4444';
+                case 'Acidente': return '#f43f5e';
+                case 'Perigo': return '#f59e0b';
+                case 'Insegurança': return '#a855f7';
+                case 'Via interditada': return '#b91c1c';
+                case 'Tempo ruim': return '#64748b';
+                default: return '#eab308';
+            }
+        }
+
+        function getReportIcon(type, subtype = "", forMapOrAlert = false) {
+            if (type === 'Radar' && forMapOrAlert) {
+                if (subtype === 'Velocidade') return RADAR_VELOCIDADE_IMG;
+                if (subtype === 'Trânsito') return RADAR_TRANSITO_IMG;
+            }
+            if (type === 'Trânsito') {
+                if (subtype === 'Trânsito Normal') return 'car';
+                if (subtype === 'Trânsito parado') return 'alert-circle';
+                return 'timer';
+            }
+            if (type === 'Polícia') {
+                if (subtype === 'Polícia oculta') return 'eye-off';
+                if (subtype === 'Polícia no outro lado') return 'arrow-right-left';
+                if (subtype === 'Radar móvel') return 'camera';
+                return 'shield-alert';
+            }
+            if (type === 'Acidente') {
+                if (subtype === 'Acidente Menor') return 'car-front';
+                if (subtype === 'Acidente Maior') return 'flame';
+                if (subtype === 'Acidente de batida') return 'zap';
+                if (subtype === 'Acidente no outro lado') return 'move-horizontal';
+                return 'car-front';
+            }
+            if (type === 'Perigo') {
+                if (subtype === 'Buraco') return 'circle-dot';
+                if (subtype === 'Objeto na Rua') return 'box';
+                if (subtype === 'Semáforo Quebrado') return 'lightbulb-off';
+                if (subtype === 'Carro parado') return 'car-front';
+                if (subtype === 'Obras') return 'construction';
+                return 'triangle-alert';
+            }
+            if (type === 'Faixa Bloqueada') {
+                if (subtype === 'Faixa da esquerda') return 'arrow-left-to-line';
+                if (subtype === 'Faixa da direita') return 'arrow-right-to-line';
+                if (subtype === 'Faixa do centro') return 'align-center';
+                return 'octagon-x';
+            }
+            if (type === 'Via interditada') {
+                if (subtype === 'Obras') return 'cone';
+                if (subtype === 'Evento') return 'party-popper';
+                return 'skull';
+            }
+            if (type === 'Tempo ruim') {
+                if (subtype === 'Neblina' || subtype === 'Nevoeiro') return 'cloud-fog';
+                if (subtype === 'Via escorregadia' || subtype === 'Alagamento') return 'waves';
+                if (subtype === 'Neve na pista' || subtype === 'Gelo na pista') return 'snowflake';
+                return 'cloud-lightning';
+            }
+            if (type === 'Insegurança') return 'alert-triangle';
+
+            switch(type) {
+                case 'Obras': return 'construction';
+                case 'Radar': return 'radar';
+                case 'Faixa Bloqueada': return 'octagon-x';
+                case 'Acidente': return 'car-front';
+                default: return 'clock';
+            }
+        }
+
+        function showReportDetail(id, data) {
+            lastSelectedReportId = id;
+            document.getElementById('alert-type').innerText = "REPORT DE USUÁRIO";
+            
+            let titleText = `${data.type} ${data.subtype || ''}`;
+            if (data.type === 'Radar' && data.subtype === 'Velocidade') {
+                titleText = 'Radar de Velocidade';
+            } else if (data.type === 'Radar' && data.subtype === 'Trânsito') {
+                titleText = 'Radar de Trânsito';
+            }
+            document.getElementById('alert-title').innerText = titleText;
+            
+            document.getElementById('alert-desc-text').innerText = getReportDesc(data.type, data.subtype);
+            document.getElementById('creator-id').innerText = data.creator;
+            
+            const iconBox = document.getElementById('alert-icon-box');
+            const iconRef = getReportIcon(data.type, data.subtype, true);
+            
+            iconBox.style.backgroundColor = getReportColor(data.type, data.subtype);
+            if (iconRef.startsWith('http')) {
+                iconBox.style.backgroundImage = `url('${iconRef}')`;
+                iconBox.innerHTML = '';
+            } else {
+                iconBox.style.backgroundImage = 'none';
+                iconBox.innerHTML = `<i data-lucide="${iconRef}" color="white" size="32"></i>`;
+            }
+            
+            const reportMeta = document.getElementById('report-meta');
+            if (data.type === 'Radar') {
+                reportMeta.classList.add('hidden');
+                reportMeta.style.display = 'none';
+            } else {
+                reportMeta.classList.remove('hidden');
+                reportMeta.style.display = 'block';
+            }
+            
+            const dist = getDistance(userPos, [data.lat, data.lng]);
+            const isNear = dist < 400;
+
+            const btnNotExists = document.getElementById('btn-not-exists');
+            const btnStillThere = document.getElementById('btn-still-there');
+
+            btnStillThere.disabled = !isNear;
+            btnStillThere.style.opacity = isNear ? '1' : '0.3';
+            btnNotExists.disabled = !isNear;
+            btnNotExists.style.opacity = isNear ? '1' : '0.3';
+
+            lucide.createIcons();
+            document.getElementById('alert-modal').style.display = 'flex';
+        }
+
+        function getReportDesc(type, subtype = "") {
+            switch(type) {
+                case 'Polícia': 
+                    if (subtype === 'Polícia oculta') return "Polícia escondida reportada. Reduza a velocidade.";
+                    if (subtype === 'Polícia no outro lado') return "Polícia avistada na pista oposta.";
+                    if (subtype === 'Radar móvel') return "Radar móvel em operação na via.";
+                    return "Presença policial relatada recentemente. Tome cuidado.";
+                case 'Faixa Bloqueada': 
+                    return `A ${subtype.toLowerCase()} está bloqueada. Mude de faixa.`;
+                case 'Acidente': 
+                    if (subtype === 'Acidente Menor') return "Acidente sem gravidade na via.";
+                    if (subtype === 'Acidente Maior') return "Acidente grave relatado. Trânsito pode estar parado.";
+                    if (subtype === 'Acidente de batida') return "Colisão entre veículos na pista.";
+                    if (subtype === 'Acidente no outro lado') return "Acidente na pista oposta. Cuidado com curiosos.";
+                    return "Colisão ou incidente veicular na pista.";
+                case 'Radar': 
+                    if (subtype === 'Velocidade') {
+                        return "Um radar de velocidade reportado por usuários e analisados por Funcionários. Tenha a velocidade baixa pra evitar multas.";
+                    } else if (subtype === 'Trânsito') {
+                        return "Um radar de trânsito reportado por usuários e analisados por Funcionários, Não tente passar da cor vermelha ou amarela pra evitar multas.";
+                    }
+                    return "Fiscalização eletrônica reportada por usuários e analisada por Funcionários.";
+                case 'Perigo':
+                    if (subtype === 'Obras') return "Esse lugar está com uma obra em andamento, pode estar bloqueada.";
+                    return `Atenção: ${subtype} reportado na via.`;
+                case 'Trânsito': 
+                    if (subtype === 'Trânsito Normal') return "Trânsito fluindo normalmente.";
+                    if (subtype === 'Trânsito lento') return "Este lugar está com um trânsito lento, evite esta rua.";
+                    if (subtype === 'Trânsito parado') return "Trânsito completamente parado. Busque rotas alternativas.";
+                    return "Alteração no fluxo de veículos.";
+                case 'Via interditada':
+                    return `A via está interditada por motivo de: ${subtype}.`;
+                case 'Tempo ruim':
+                    return `Condição climática relatada: ${subtype}. Reduza a velocidade.`;
+                case 'Insegurança':
+                    return "Relato de insegurança ou atividade suspeita na região. Fique atento.";
+                case 'Obras': return "Esse lugar está com uma obra em andamento, pode estar bloqueada.";
+                case 'Trânsito Lento': return "Este lugar está com um trânsito lento, evite esta rua.";
+                default: return "Evento relatado na via. Dirija com cuidado.";
+            }
+        }
+
+        async function voteReport(isPositive) {
+            if (!window.currentAuthUser || !lastSelectedReportId) return;
+
+            const reportRef = window.fb.doc(window.fb.db, 'artifacts', window.fb.appId, 'public', 'data', 'reports', lastSelectedReportId);
+            
+            try {
+                const snap = await window.fb.getDoc(reportRef);
+                if (!snap.exists()) return;
+
+                const data = snap.data();
+                const currentExpiry = data.expiresAt.toDate ? data.expiresAt.toDate() : new Date(data.expiresAt);
+                let newExpiry = new Date(currentExpiry);
+
+                if (isPositive) {
+                    newExpiry.setDate(newExpiry.getDate() + 1);
+                } else {
+                    newExpiry.setHours(newExpiry.getHours() - 6);
+                }
+
+                const updateData = {
+                    expiresAt: newExpiry,
+                    votes: window.fb.arrayUnion(window.currentAuthUser.uid)
+                };
+
+                if (isPositive) {
+                    updateData.votes_exists = window.fb.increment(1);
+                } else {
+                    updateData.votes_not_exists = window.fb.increment(1);
+                }
+
+                await window.fb.updateDoc(reportRef, updateData);
+                
+                jaVotouNesse.add(lastSelectedReportId);
+                
+                closeAlertModal();
+            } catch (e) {
+                console.error("Erro ao votar:", e);
+            }
+        }
+
+        function handleProximityLogic(coords) {
+            if (!isNavigating) {
+                closeProximityAlert();
+                return;
+            }
+
+            let foundNearby = null;
+            let minDist = 501;
+
+            reportCache.forEach(report => {
+                const reportCfg = config.reports[report.type] || { alert: true };
+                if (!reportCfg.alert) return;
+
+                const d = getDistance(coords, [report.lat, report.lng]);
+                
+                if (d <= 500) {
+                    const isRelevant = checkReportRelevance(report);
+                    if (isRelevant && d < minDist) {
+                        minDist = d;
+                        foundNearby = report;
+                    }
+                }
+            });
+
+            if (foundNearby) {
+                if (!alertasMostradosNestaViagem.has(foundNearby.id)) {
+                    updateProximityAlertUI(foundNearby, minDist);
+                }
+            } else {
+                if (activeAlertaReportId && !alertaPassou) {
+                    closeProximityAlert();
+                }
+            }
+        }
+
+        function checkReportRelevance(report) {
+            if (!routingControl || !routingControl._selectedRoute) {
+                return getDistance(userPos, [report.lat, report.lng]) < 40;
+            }
+            const pathCoords = routingControl._selectedRoute.coordinates;
+            for (let i = 0; i < pathCoords.length; i++) {
+                const d = getDistance([report.lat, report.lng], [pathCoords[i].lat, pathCoords[i].lng]);
+                if (d < 35) return true;
+            }
+            if (getDistance(userPos, [report.lat, report.lng]) < 30) return true;
+            return false;
+        }
+
+        function updateProximityAlertUI(report, dist) {
+            const frame = document.getElementById('proximity-alert-frame');
+            const tripCard = document.getElementById('trip-card');
+            const textEl = document.getElementById('prox-alert-text');
+            const iconContainer = document.getElementById('prox-icon-container');
+            const voteArea = document.getElementById('prox-vote-area');
+            const speedUI = document.getElementById('speed-ui');
+            const reportBtn = document.getElementById('report-trigger-btn');
+
+            if (activeAlertaReportId !== report.id) {
+                activeAlertaReportId = report.id;
+                alertaPassou = false;
+                alertasMostradosNestaViagem.add(report.id);
+
+                tripCard.classList.remove('active');
+                tripCard.style.opacity = '0';
+                tripCard.style.transform = 'translateX(-50%) translateY(100%)';
+                
+                frame.classList.add('active');
+                
+                speedUI.classList.add('ui-lift-active');
+                reportBtn.classList.add('ui-lift-active');
+                
+                const iconRef = getReportIcon(report.type, report.subtype, true);
+                iconContainer.style.backgroundColor = getReportColor(report.type, report.subtype);
+                
+                if (iconRef.startsWith('http')) {
+                    iconContainer.style.backgroundImage = `url('${iconRef}')`;
+                    iconContainer.innerHTML = '';
+                } else {
+                    iconContainer.style.backgroundImage = 'none';
+                    iconContainer.innerHTML = `<i data-lucide="${iconRef}" color="white" size="24"></i>`;
+                }
+                lucide.createIcons();
+            }
+
+            if (dist < 25) alertaPassou = true;
+
+            if (!alertaPassou) {
+                let label = report.type === 'Radar' ? `Radar de ${report.subtype || 'Velocidade'}` : report.type;
+                textEl.innerText = `${label} em ${Math.round(dist)} metros`;
+                
+                if (dist <= 150 && !jaVotouNesse.has(report.id)) {
+                    voteArea.classList.remove('hidden');
+                } else {
+                    voteArea.classList.add('hidden');
+                }
+            } else {
+                let label = report.type === 'Radar' ? `Radar de ${report.subtype || 'Velocidade'}` : report.type;
+                textEl.innerText = label;
+                voteArea.classList.add('hidden');
+
+                if (!alertaFimTimeout) {
+                    alertaFimTimeout = setTimeout(() => {
+                        closeProximityAlert();
+                    }, 5000);
+                }
+            }
+        }
+
+        function closeProximityAlert() {
+            const frame = document.getElementById('proximity-alert-frame');
+            const tripCard = document.getElementById('trip-card');
+            const speedUI = document.getElementById('speed-ui');
+            const reportBtn = document.getElementById('report-trigger-btn');
+            
+            frame.classList.remove('active');
+            activeAlertaReportId = null;
+            alertaPassou = false;
+            if(alertaFimTimeout) clearTimeout(alertaFimTimeout);
+            alertaFimTimeout = null;
+
+            if (isNavigating) {
+                tripCard.classList.add('active');
+                tripCard.style.opacity = '1';
+                tripCard.style.transform = 'translateX(-50%) translateY(0)';
+                
+                speedUI.classList.add('ui-lift-active');
+                reportBtn.classList.add('ui-lift-active');
+            } else {
+                speedUI.classList.remove('ui-lift-active');
+                reportBtn.classList.remove('ui-lift-active');
+            }
+        }
+
+        async function voteViaAlerta(isPositive) {
+            lastSelectedReportId = activeAlertaReportId;
+            await voteReport(isPositive);
+            closeProximityAlert();
+        }
+
+        function checkNearbyReports(coords) {
+            handleProximityLogic(coords);
+        }
+
+        function openSettingCategory(id) {
+            document.getElementById('settings-main-menu').style.display = 'none';
+            const list = document.getElementById('list-' + id);
+            list.classList.add('active');
+            
+            if (id === 'reportes') renderReportConfigs();
+        }
+
+        function backToSettingsMain() {
+            document.querySelectorAll('.settings-list').forEach(l => l.classList.remove('active'));
+            document.getElementById('settings-main-menu').style.display = 'block';
+        }
+
+        function renderReportConfigs() {
+            const container = document.getElementById('report-config-container');
+            container.innerHTML = '';
+            
+            Object.keys(config.reports).forEach(type => {
+                const data = config.reports[type];
+                const card = document.createElement('div');
+                card.className = 'report-config-card';
+                card.innerHTML = `
+                    <div class="flex items-center gap-3 mb-3">
+                        <i data-lucide="${getReportIcon(type)}" style="color: var(--accent);" size="18"></i>
+                        <span class="font-bold text-sm">${type}</span>
+                    </div>
+                    <div class="flex gap-4">
+                        <label class="switch-container">
+                            <input type="checkbox" ${data.alert ? 'checked' : ''} onchange="updateReportPref('${type}', 'alert', this.checked)">
+                            <div class="switch-box"></div>
+                            Alertar
+                        </label>
+                        <label class="switch-container">
+                            <input type="checkbox" ${data.show ? 'checked' : ''} onchange="updateReportPref('${type}', 'show', this.checked)">
+                            <div class="switch-box"></div>
+                            No Mapa
+                        </label>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+            lucide.createIcons();
+        }
+
+        function updateReportPref(type, field, val) {
+            config.reports[type][field] = val;
+            saveConfig();
+            renderFilteredReports();
+        }
+
+        function loadConfig() {
+            const saved = localStorage.getItem('catsblock_cfg');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                config = { ...config, ...parsed };
+                
+                if (document.getElementById('cfg-theme')) document.getElementById('cfg-theme').value = config.theme;
+                if (document.getElementById('cfg-path-algo')) document.getElementById('cfg-path-algo').value = config.pathAlgo || 'fast';
+                if (document.getElementById('cfg-auto-zoom')) document.getElementById('cfg-auto-zoom').value = config.autoZoom || 'true';
+                if (document.getElementById('cfg-arrow-size')) document.getElementById('cfg-arrow-size').value = config.arrowSize || 'normal';
+                if (document.getElementById('cfg-record-trips')) document.getElementById('cfg-record-trips').value = config.recordTrips || 'false';
+            }
+
+            const savedArrow = localStorage.getItem('catsblock_arrow_style');
+            if (savedArrow) {
+                arrowStyle = { ...arrowStyle, ...JSON.parse(savedArrow) };
+                tempArrowStyle = { ...arrowStyle };
+            }
+            
+            if (config.uiColor) {
+                setAppColor(config.uiColor);
+            } else {
+                setAppColor('purple');
+            }
+        }
+
+        function saveConfig() {
+            config.theme = document.getElementById('cfg-theme').value;
+            config.pathAlgo = document.getElementById('cfg-path-algo').value;
+            config.autoZoom = document.getElementById('cfg-auto-zoom').value;
+            config.arrowSize = document.getElementById('cfg-arrow-size').value;
+            config.recordTrips = document.getElementById('cfg-record-trips').value;
+            localStorage.setItem('catsblock_cfg', JSON.stringify(config));
+            
+            applyTheme();
+            updateVisionMode();
+            
+            if (userPos && map) {
+                updateUserMarker(interpolatedPos || userPos, frozenRotation || rotation, isNavigating);
+            }
+            if (destinationLatLng && !isPlaybackMode) setDest(destinationLatLng); 
+        }
+
+        function toggleSettings(show) {
+            document.getElementById('settings-panel').style.display = show ? 'block' : 'none';
+            if (!show) backToSettingsMain();
+        }
+
+        function applyTheme() {
+            if (!tileLayer) return;
+            let mode = config.theme;
+            if (mode === 'auto') {
+                const now = new Date();
+                const minutes = now.getHours() * 60 + now.getMinutes();
+                mode = (minutes >= 1111 || minutes <= 389) ? 'dark' : 'light';
+            }
+            
+            const url = mode === 'dark' ? 
+                'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png' : 
+                'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+            
+            tileLayer.setUrl(url);
+
+            if (mode === 'dark') {
+                document.body.classList.remove('theme-light');
+                document.body.classList.add('theme-dark');
+            } else {
+                document.body.classList.remove('theme-dark');
+                document.body.classList.add('theme-light');
+            }
+        }
+
+        function updateVisionMode() {
+            const mapEl = document.getElementById('map');
+            if (mapEl) {
+                mapEl.style.transform = 'none';
+                mapEl.style.transition = 'none';
+            }
+        }
+
+        function openArrowCustomizer() {
+            tempArrowStyle = { ...arrowStyle };
+            document.getElementById('list-mapa').classList.remove('active');
+            document.getElementById('list-custom-arrow').classList.add('active');
+            
+            document.getElementById('arrow-bg-opacity').value = tempArrowStyle.bgOpacity;
+            document.getElementById('preview-bg-opacity-val').innerText = tempArrowStyle.bgOpacity;
+            setArrowMaterial(tempArrowStyle.bgMaterial);
+            
+            updateArrowPreview();
+        }
+
+        function closeArrowCustomizer() {
+            document.getElementById('list-custom-arrow').classList.remove('active');
+            document.getElementById('list-mapa').classList.add('active');
+        }
+
+        function setArrowMaterial(mat) {
+            tempArrowStyle.bgMaterial = mat;
+            const glassBtn = document.getElementById('arrow-mat-glass');
+            const plasticBtn = document.getElementById('arrow-mat-plastic');
+            
+            if (mat === 'glass') {
+                glassBtn.className = 'py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider border border-white/10 bg-white/10 text-white';
+                plasticBtn.className = 'py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider border border-white/5 bg-transparent text-zinc-500';
+            } else {
+                plasticBtn.className = 'py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider border border-white/10 bg-white/10 text-white';
+                glassBtn.className = 'py-2.5 rounded-xl text-xs font-bold uppercase tracking-wider border border-white/5 bg-transparent text-zinc-500';
+            }
+            updateArrowPreview();
+        }
+
+        function setArrowElementColor(element, colorName, hex) {
+            if (element === 'bg') {
+                tempArrowStyle.bgColor = hex;
+                tempArrowStyle.bgName = colorName;
+            } else {
+                tempArrowStyle.fgColor = hex;
+                tempArrowStyle.fgName = colorName;
+            }
+            updateArrowPreview();
+        }
+
+        function updateArrowPreview() {
+            const op = document.getElementById('arrow-bg-opacity').value;
+            tempArrowStyle.bgOpacity = parseFloat(op);
+            document.getElementById('preview-bg-opacity-val').innerText = op;
+            
+            const container = document.getElementById('custom-arrow-preview-container');
+            if (container) {
+                container.innerHTML = generateArrowMarkup(tempArrowStyle, 0, 'large');
+            }
+        }
+
+        function generateArrowMarkup(style, rot, sizeConfig) {
+            let arrowScales = { 'small': 0.7, 'normal': 1, 'large': 1.5 };
+            let activeScale = arrowScales[sizeConfig || 'normal'];
+            
+            let materialCss = "";
+            let borderCss = `border: 1.5px solid rgba(255, 255, 255, 0.6);`;
+            
+            if (style.bgMaterial === 'glass') {
+                materialCss = `background: rgba(${hexToRgb(style.bgColor)}, ${style.bgOpacity}); backdrop-filter: blur(8px); box-shadow: 0 4px 15px rgba(0,0,0,0.3);`;
+            } else {
+                materialCss = `background: rgba(${hexToRgb(style.bgColor)}, ${style.bgOpacity}); box-shadow: 0 4px 8px rgba(0,0,0,0.2);`;
+            }
+
+            return `
+                <div class="arrow-wrapper mx-auto" style="width: 32px; height: 32px; max-width: 32px; max-height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; transform: scale(${activeScale}); ${materialCss} ${borderCss}">
+                    <svg class="nav-arrow-svg" style="width: 18px; height: 18px; fill: ${style.fgColor}; transform: rotate(${rot}deg); transition: none;" viewBox="0 0 100 100">
+                        <path d="M50 10 L85 85 L50 70 L15 85 Z"/>
+                    </svg>
+                </div>
+            `;
+        }
+
+        function hexToRgb(hex) {
+            let c;
+            if(/^#([A-Fa-f0-9]{3}){1,2}$/.test(hex)){
+                c = hex.substring(1).split('');
+                if(c.length == 3){
+                    c = [c[0], c[0], c[1], c[1], c[2], c[2]];
+                }
+                c = '0x' + c.join('');
+                return [(c>>16)&255, (c>>8)&255, c&255].join(',');
+            }
+            return '168,85,247'; 
+        }
+
+        function saveArrowCustomization() {
+            arrowStyle = { ...tempArrowStyle };
+            localStorage.setItem('catsblock_arrow_style', JSON.stringify(arrowStyle));
+
+            if (userPos && map) {
+                updateUserMarker(interpolatedPos || userPos, frozenRotation || rotation, isNavigating);
+            }
+            closeArrowCustomizer();
+        }
+
+        function resetArrowToDefault() {
+            tempArrowStyle = {
+                bgOpacity: 0.25,
+                bgMaterial: 'glass',
+                bgColor: '#A855F7',
+                bgName: 'purple',
+                fgColor: '#A855F7',
+                fgName: 'purple'
+            };
+
+            document.getElementById('arrow-bg-opacity').value = tempArrowStyle.bgOpacity;
+            document.getElementById('preview-bg-opacity-val').innerText = tempArrowStyle.bgOpacity;
+            setArrowMaterial(tempArrowStyle.bgMaterial);
+            updateArrowPreview();
+        }
+
+        async function translateText(text, speakIt = true) {
+            if (!text) return;
+            
+            if (text !== lastRawInstruction) {
+                lastRawInstruction = text;
+                try {
+                    const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=en|pt-BR`);
+                    const data = await res.json();
+                    const translated = data.responseData.translatedText;
+                    document.getElementById('inst-text').innerText = translated;
+                    document.getElementById('inst-text').setAttribute('data-translated', translated);
+                } catch (e) { 
+                    document.getElementById('inst-text').innerText = text; 
+                    document.getElementById('inst-text').setAttribute('data-translated', text);
+                }
+            }
+            
+            if (speakIt) {
+                let translated = document.getElementById('inst-text').getAttribute('data-translated') || document.getElementById('inst-text').innerText;
+                const ut = new SpeechSynthesisUtterance(translated);
+                ut.lang = 'pt-BR';
+                synth.cancel();
+                synth.speak(ut);
+            }
+        }
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredInstallPrompt = e;
+            
+            const pwaStatus = localStorage.getItem('pwa_prompt_dismissed');
+            if (pwaStatus !== 'true') {
+                document.getElementById('pwa-prompt-card').style.display = 'flex';
+                document.getElementById('pwa-prompt-card').classList.remove('hidden');
+            }
+        });
+
+        function dismissPwaPrompt(savePreference) {
+            document.getElementById('pwa-prompt-card').style.display = 'none';
+            document.getElementById('pwa-prompt-card').classList.add('hidden');
+            if (savePreference) {
+                localStorage.setItem('pwa_prompt_dismissed', 'true');
+            }
+        }
+
+        async function triggerPwaInstall() {
+            if (deferredInstallPrompt) {
+                deferredInstallPrompt.prompt();
+                const { outcome } = await deferredInstallPrompt.userChoice;
+                if (outcome === 'accepted') {
+                    localStorage.setItem('pwa_prompt_dismissed', 'true');
+                }
+                deferredInstallPrompt = null;
+                dismissPwaPrompt(false);
+            } else {
+                alert("Para instalar em seu aparelho, acesse as opções do navegador e selecione 'Adicionar à tela de início'.");
+                dismissPwaPrompt(true);
+            }
+        }
+
+        if (window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches) {
+            dismissPwaPrompt(false);
+        }
+
+        function toggleTripMinimize(minimize) {
+            const innerCard = document.getElementById('trip-card-inner');
+            const nonNavGroup = document.getElementById('trip-non-nav-group');
+            const actArea = document.getElementById('action-area');
+            const btnMin = document.getElementById('btn-minimize-trip');
+            const btnExp = document.getElementById('btn-expand-trip');
+            const speedUI = document.getElementById('speed-ui');
+            const reportBtn = document.getElementById('report-trigger-btn');
+
+            if (minimize) {
+                innerCard.style.padding = '14px 18px';
+                nonNavGroup.style.display = 'none';
+                actArea.style.display = 'none';
+                btnMin.classList.add('hidden');
+                btnExp.classList.remove('hidden');
+                
+                speedUI.className = 'speed-badge ui-lift-minimized';
+                reportBtn.className = 'ui-lift-minimized';
+                reportBtn.style.bottom = '25px';
+            } else {
+                innerCard.style.padding = '20px';
+                nonNavGroup.style.display = 'block';
+                actArea.style.display = 'block';
+                btnMin.classList.remove('hidden');
+                btnExp.classList.add('hidden');
+                
+                speedUI.className = 'speed-badge ui-lift-active';
+                reportBtn.className = 'ui-lift-active';
+                reportBtn.style.bottom = '25px';
+            }
+            lucide.createIcons();
+        }
+
+        function getClosestPointOnSegment(p, p1, p2) {
+            let x = p[0], y = p[1];
+            let x1 = p1[0], y1 = p1[1];
+            let x2 = p2[0], y2 = p2[1];
+            
+            let A = x - x1;
+            let B = y - y1;
+            let C = x2 - x1;
+            let D = y2 - y1;
+            
+            let dot = A * C + B * D;
+            let len_sq = C * C + D * D;
+            let param = -1;
+            if (len_sq !== 0) param = dot / len_sq;
+            
+            let xx, yy;
+            if (param < 0) { xx = x1; yy = y1; }
+            else if (param > 1) { xx = x2; yy = y2; }
+            else { xx = x1 + param * C; yy = y1 + param * D; }
+            
+            return [xx, yy];
+        }
+
+        function snapToRoute(coords, routeCoords) {
+            let minDist = Infinity;
+            let snapped = coords;
+            let closestIdx = 0;
+            for(let i=0; i < routeCoords.length - 1; i++) {
+                let p1 = [routeCoords[i].lat, routeCoords[i].lng];
+                let p2 = [routeCoords[i+1].lat, routeCoords[i+1].lng];
+                let proj = getClosestPointOnSegment(coords, p1, p2);
+                let d = getDistance(coords, proj);
+                if (d < minDist) {
+                    minDist = d;
+                    snapped = proj;
+                    closestIdx = i;
+                }
+            }
+            return { snapped, minDist, closestIdx };
+        }
+
+        function projectAlongRoute(startPos, routeCoords, distMeters) {
+            let snap = snapToRoute(startPos, routeCoords);
+            let idx = snap.closestIdx;
+            let currentPt = snap.snapped;
+            let accumulated = 0;
+
+            for (let i = idx; i < routeCoords.length - 1; i++) {
+                let nextPt = [routeCoords[i+1].lat, routeCoords[i+1].lng];
+                let segDist = getDistance(currentPt, nextPt);
+                
+                if (accumulated + segDist >= distMeters) {
+                    let remaining = distMeters - accumulated;
+                    let ratio = remaining / segDist;
+                    return [
+                        currentPt[0] + (nextPt[0] - currentPt[0]) * ratio,
+                        currentPt[1] + (nextPt[1] - currentPt[1]) * ratio
+                    ];
+                }
+                accumulated += segDist;
+                currentPt = nextPt;
+            }
+            return currentPt; 
+        }
+
+        function smoothAnimationTick() {
+            if (isPlaybackMode) {
+                smoothAnimationId = requestAnimationFrame(smoothAnimationTick);
+                return;
+            }
+
+            if (!userPos) {
+                smoothAnimationId = requestAnimationFrame(smoothAnimationTick);
+                return;
+            }
+
+            const now = performance.now();
+            let dt = now - lastTickTime;
+            lastTickTime = now;
+            if (dt > 100) dt = 16; 
+            
+            const timePassed = now - lastGpsTimestamp;
+
+            if (timePassed > 3000) {
+                signalLostMode = true;
+                smoothAnimationId = requestAnimationFrame(smoothAnimationTick);
+                return;
+            }
+
+            let targetPos = simulatedTargetPos || userPos;
+
+            if (isNavigating) {
+                if (isFreezeActive) {
+                    const elapsedFreeze = now - freezeStartTime;
+                    if (elapsedFreeze >= 500) {
+                        isFreezeActive = false;
+                    } else {
+                        updateUserMarker(interpolatedPos, frozenRotation, true);
+                        smoothAnimationId = requestAnimationFrame(smoothAnimationTick);
+                        return;
+                    }
+                }
+
+                if (isCorrectingPredictiveError) {
+                    let distToReal = getDistance(interpolatedPos, targetPos);
+                    let lerpFactor = 0.04; 
+
+                    interpolatedPos = [
+                        interpolatedPos[0] + (targetPos[0] - interpolatedPos[0]) * lerpFactor,
+                        interpolatedPos[1] + (targetPos[1] - interpolatedPos[1]) * lerpFactor
+                    ];
+
+                    if (distToReal > 1) {
+                         let realAngle = Math.atan2(targetPos[1] - interpolatedPos[1], targetPos[0] - interpolatedPos[0]) * 180 / Math.PI;
+                         let diff = ((realAngle - rotation) % 360 + 540) % 360 - 180;
+                         rotation += diff * 0.03; 
+                    }
+
+                    updateUserMarker(interpolatedPos, rotation, true);
+
+                    if (distToReal < 2.0) {
+                        isCorrectingPredictiveError = false;
+                        isFreezeActive = true;
+                        freezeStartTime = performance.now();
+                        frozenRotation = rotation;
+                    }
+
+                    smoothAnimationId = requestAnimationFrame(smoothAnimationTick);
+                    return;
+                }
+
+                let nearIntersection = false;
+                let intersectionAngle = rotation;
+                let predictiveTarget = null;
+
+                if (currentSpeed < 15 && currentSpeed > 2 && routingControl && routingControl._selectedRoute) {
+                    const pathCoords = routingControl._selectedRoute.coordinates;
+                    const snapData = snapToRoute(interpolatedPos, pathCoords);
+                    let closestIdx = snapData.closestIdx;
+                    
+                    const checkAheadIdx = Math.min(closestIdx + 4, pathCoords.length - 1);
+                    if (checkAheadIdx !== closestIdx) {
+                        const distToCurve = getDistance(interpolatedPos, [pathCoords[checkAheadIdx].lat, pathCoords[checkAheadIdx].lng]);
+                        if (distToCurve < 25) {
+                            let angle = Math.atan2(pathCoords[checkAheadIdx].lng - pathCoords[closestIdx].lng, pathCoords[checkAheadIdx].lat - pathCoords[closestIdx].lat) * 180 / Math.PI;
+                            let angleDiff = Math.abs(((angle - rotation) % 360 + 540) % 360 - 180);
+                            
+                            if (angleDiff > 35) { 
+                                nearIntersection = true;
+                                intersectionAngle = angle;
+                                predictiveTarget = [pathCoords[checkAheadIdx].lat, pathCoords[checkAheadIdx].lng];
+                            }
+                        }
+                    }
+                }
+
+                if (nearIntersection) {
+                    let diff = ((intersectionAngle - rotation) % 360 + 540) % 360 - 180;
+                    rotation += diff * 0.04; 
+
+                    interpolatedPos = [
+                        interpolatedPos[0] + (predictiveTarget[0] - interpolatedPos[0]) * 0.015,
+                        interpolatedPos[1] + (predictiveTarget[1] - interpolatedPos[1]) * 0.015
+                    ];
+                } else {
+                    let activeTarget = targetPos;
+                    if (timePassed > 500 && currentSpeed > 2 && routingControl && routingControl._selectedRoute) {
+                        let mps = currentSpeed / 3.6;
+                        let extraDist = mps * ((timePassed - 500) / 1000);
+                        activeTarget = projectAlongRoute(targetPos, routingControl._selectedRoute.coordinates, extraDist);
+                    }
+
+                    let distToReal = getDistance(interpolatedPos, activeTarget);
+                    let lerpFactor = Math.min(dt * 0.003, 0.15); 
+                    
+                    interpolatedPos = [
+                        interpolatedPos[0] + (activeTarget[0] - interpolatedPos[0]) * lerpFactor,
+                        interpolatedPos[1] + (activeTarget[1] - interpolatedPos[1]) * lerpFactor
+                    ];
+
+                    if (distToReal > 1) {
+                         let realAngle = Math.atan2(activeTarget[1] - interpolatedPos[1], activeTarget[0] - interpolatedPos[0]) * 180 / Math.PI;
+                         let diff = ((realAngle - rotation) % 360 + 540) % 360 - 180;
+                         rotation += diff * 0.08;
+                    }
+                }
+
+                updateUserMarker(interpolatedPos, rotation, true);
+                
+            } else {
+                let distToReal = getDistance(interpolatedPos, targetPos);
+                let lerpFactor = Math.min(dt * 0.004, 0.2);
+                interpolatedPos = [
+                    interpolatedPos[0] + (targetPos[0] - interpolatedPos[0]) * lerpFactor,
+                    interpolatedPos[1] + (targetPos[1] - interpolatedPos[1]) * lerpFactor
+                ];
+                updateUserMarker(interpolatedPos, 0, false);
+            }
+
+            smoothAnimationId = requestAnimationFrame(smoothAnimationTick);
+        }
+
+        // Regra de Ouro 1: Auto Focus (Loop ininterrupto a cada 0.1s após 5s)
+        function handleMapInteraction() {
+            if (isPlaybackMode) return;
+            
+            clearInterval(autoFocusLoopInterval);
+            clearTimeout(inactivityTimeout);
+            
+            inactivityTimeout = setTimeout(() => {
+                if (isNavigating && !isPlaybackMode) {
+                    autoFocusLoopInterval = setInterval(() => {
+                        if (interpolatedPos && map) {
+                            map.panTo(interpolatedPos, { animate: false });
+                        }
+                    }, 100);
+                }
+            }, 5000);
+        }
+
+        lucide.createIcons();
+        loadConfig();
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const hasRoute = urlParams.get('lat') && urlParams.get('lng');
+
+        function requestGpsAndInit() {
+            navigator.geolocation.getCurrentPosition(pos => {
+                init(pos.coords.latitude, pos.coords.longitude);
+            }, () => {
+                startOnboarding(); // Falhou GPS, volta pro passo 1 pra forçar liberação
+            }, {enableHighAccuracy: true});
+        }
+
+        if (hasRoute) {
+            if (!localStorage.getItem('catsblock_onboarding_done')) {
+                startOnboarding();
+            } else {
+                requestGpsAndInit();
+            }
+        } else {
+            if (!localStorage.getItem('catsblock_onboarding_done')) {
+                startOnboarding();
+            } else {
+                requestGpsAndInit();
+            }
+        }
+
+        function init(lat, lng) {
+            userPos = [lat, lng];
+            interpolatedPos = [lat, lng];
+            simulatedTargetPos = [lat, lng];
+            lastTickTime = performance.now();
+            if (map) return; 
+
+            map = L.map('map', { 
+                zoomControl: false, 
+                attributionControl: false, 
+                inertia: false,
+                zoomAnimation: false, 
+                minZoom: 13,
+                maxZoom: 20,
+                keepBuffer: 18, 
+                updateWhenZooming: false
+            }).setView(userPos, 19);
+
+            map.on('zoomend', () => {
+                renderFilteredReports();
+                fetchAlerts();
+            });
+
+            tileLayer = L.tileLayer('', {
+                maxZoom: 20,
+                noWrap: true,
+                className: 'apple-tiles'
+            }).addTo(map);
+
+            applyTheme();
+            alertLayer = L.layerGroup().addTo(map);
+            activeReportsLayer = L.layerGroup().addTo(map);
+
+            if (!map.getPane('darkPurplePane')) {
+                map.createPane('darkPurplePane');
+                map.getPane('darkPurplePane').style.zIndex = 401;
+                map.getPane('darkPurplePane').style.pointerEvents = 'none';
+            }
+
+            map.on('move zoom', () => {
+                map.eachLayer(layer => {
+                    if (layer.redraw && (layer instanceof L.Polyline || layer instanceof L.Circle)) {
+                        layer.redraw();
+                    }
+                });
+            });
+            
+            // Regra de Ouro 1 Bindings
+            map.on('movestart dragstart touchstart mousedown wheel zoomstart', handleMapInteraction);
+            
+            updateUserMarker(userPos, 0, false);
+            fetchAlerts();
+            
+            const checkFB = setInterval(() => {
+                if (window.fb && window.fb.db) {
+                    listenToReports();
+                    clearInterval(checkFB);
+                }
+            }, 500);
+
+            smoothAnimationId = requestAnimationFrame(smoothAnimationTick);
+
+            navigator.geolocation.watchPosition(pos => {
+                if (isPlaybackMode) return;
+
+                const coords = [pos.coords.latitude, pos.coords.longitude];
+                currentSpeed = Math.round((pos.coords.speed || 0) * 3.6);
+                document.getElementById('speed-val').innerText = currentSpeed;
+                
+                let isUserOnTrack = false;
+                
+                if (isNavigating && routingControl && routingControl._selectedRoute) {
+                    const pathCoords = routingControl._selectedRoute.coordinates;
+                    const snapData = snapToRoute(coords, pathCoords);
+                    
+                    isUserOnTrack = true;
+                    
+                    if (snapData.minDist > 25) {
+                        isUserOnTrack = false;
+                    } else if (snapData.minDist > 10 && prevPos) {
+                        let userAngle = Math.atan2(coords[1] - prevPos[1], coords[0] - prevPos[0]) * 180 / Math.PI;
+                        let pathPt1 = pathCoords[snapData.closestIdx];
+                        let pathPt2 = pathCoords[Math.min(snapData.closestIdx + 1, pathCoords.length - 1)];
+                        let pathAngle = Math.atan2(pathPt2.lng - pathPt1.lng, pathPt2.lat - pathPt1.lat) * 180 / Math.PI;
+                        
+                        let angleDiff = Math.abs(((userAngle - pathAngle) % 360 + 540) % 360 - 180);
+                        
+                        if (angleDiff > 35) {
+                            isUserOnTrack = false;
+                        }
+                    }
+
+                    if (isUserOnTrack) {
+                        simulatedTargetPos = snapData.snapped; 
+                        offRouteCount = 0;
+                        if(isCorrectingPredictiveError === false && isFreezeActive === false && getDistance(interpolatedPos, simulatedTargetPos) > 15) {
+                            isCorrectingPredictiveError = true;
+                            frozenRotation = rotation;
+                        }
+                    } else {
+                        simulatedTargetPos = coords;
+                        offRouteCount++;
+                    }
+
+                    if (!isUserOnTrack && offRouteCount >= 2 && !isCorrectingPredictiveError && !isFreezeActive) {
+                        console.log("Recalculando rota por desvio de traçado confirmado...");
+                        let angle = Math.atan2(coords[1] - interpolatedPos[1], coords[0] - interpolatedPos[0]) * 180 / Math.PI;
+                        rotation = angle;
+                        interpolatedPos = [coords[0], coords[1]]; 
+                        setDest(destinationLatLng, L.latLng(coords));
+                        offRouteCount = 0;
+                    }
+                } else {
+                    simulatedTargetPos = coords;
+                }
+
+                signalLostMode = false;
+                lastGpsTimestamp = performance.now();
+
+                // Regra de Ouro 3 (Recording frame)
+                if (isRecordingTrip && isNavigating && currentTripData) {
+                    currentTripData.frames.push({
+                        lat: coords[0],
+                        lng: coords[1],
+                        speed: currentSpeed,
+                        rot: rotation,
+                        time: Date.now()
+                    });
+                }
+
+                if (isNavigating && config.autoZoom === 'true') {
+                    let calculatedZoom = 20; 
+                    
+                    if (currentSpeed >= 20) {
+                        let speedLoss = Math.floor(currentSpeed / 20);
+                        calculatedZoom = Math.max(20 - speedLoss, 16); 
+                    }
+                    
+                    if (map.getZoom() !== calculatedZoom) {
+                        map.setZoom(calculatedZoom, { animate: true });
+                    }
+                }
+
+                if (!lastApiPos || getDistance(coords, lastApiPos) > 10) {
+                    fetchAlerts();
+                    lastApiPos = coords;
+                }
+
+                userPos = coords;
+                checkNearbyReports(coords);
+                animate(coords); 
+                
+                prevPos = coords;
+            }, err => {
+                // Força permissão se perder acesso
+                if (err.code === 1) startOnboarding(); 
+            }, { enableHighAccuracy: true });
+
+            map.on('click', (e) => { if(!isNavigating && !isPlaybackMode) setDest(e.latlng); });
+        }
+
+        setInterval(() => {
+            if (isNavigating && interpolatedPos && routingControl && routingControl._selectedRoute && !isPlaybackMode) {
+                const pathCoords = routingControl._selectedRoute.coordinates;
+                const snapData = snapToRoute(interpolatedPos, pathCoords);
+                const closestIdx = snapData.closestIdx;
+                const snappedPos = snapData.snapped;
+
+                let exactPathTrail = [];
+                for (let i = 0; i <= closestIdx; i++) {
+                    exactPathTrail.push([pathCoords[i].lat, pathCoords[i].lng]);
+                }
+                exactPathTrail.push(snappedPos);
+
+                if (!darkPurplePolyline) {
+                    darkPurplePolyline = L.polyline(exactPathTrail, { 
+                        color: '#3b0764', 
+                        weight: 6, 
+                        opacity: 1, 
+                        pane: 'darkPurplePane' 
+                    }).addTo(map);
+                } else {
+                    darkPurplePolyline.setLatLngs(exactPathTrail);
+                }
+            }
+        }, 50);
+
+        // Regra de Ouro 2: Atualização rigorosa da instrução (persistir se não for menor que 15m)
+        setInterval(() => {
+            if (isNavigating && routingControl && routingControl._selectedRoute && interpolatedPos && !isPlaybackMode) {
+                const route = routingControl._selectedRoute;
+                const pathCoords = route.coordinates;
+                const insts = route.instructions;
+                
+                const snapData = snapToRoute(interpolatedPos, pathCoords);
+                let closestIdx = snapData.closestIdx;
+                
+                let nextInst = null;
+                let nextInstIdx = -1;
+                
+                for (let i = 0; i < insts.length; i++) {
+                    if (insts[i].index > closestIdx) {
+                        nextInst = insts[i];
+                        nextInstIdx = i;
+                        break;
+                    }
+                }
+                
+                if (!nextInst && insts.length > 0) {
+                    nextInst = insts[insts.length - 1];
+                    nextInstIdx = insts.length - 1;
+                }
+                
+                if (nextInst) {
+                    let pathDist = 0;
+                    if (nextInst.index > closestIdx) {
+                        pathDist += getDistance(interpolatedPos, [pathCoords[closestIdx+1].lat, pathCoords[closestIdx+1].lng]);
+                        for (let i = closestIdx + 1; i < nextInst.index; i++) {
+                            pathDist += getDistance([pathCoords[i].lat, pathCoords[i].lng], [pathCoords[i+1].lat, pathCoords[i+1].lng]);
+                        }
+                    } else {
+                        pathDist = getDistance(interpolatedPos, [pathCoords[nextInst.index].lat, pathCoords[nextInst.index].lng]);
+                    }
+                    
+                    document.getElementById('inst-dist').innerText = `EM ${Math.round(pathDist)}m`;
+                    
+                    let newIconName = updateNavigationIcon(nextInst);
+                    const iconContainer = document.getElementById('inst-icon');
+                    if (iconContainer.getAttribute('data-current-icon') !== newIconName) {
+                        iconContainer.innerHTML = `<i data-lucide="${newIconName}" size="32"></i>`;
+                        iconContainer.setAttribute('data-current-icon', newIconName);
+                        lucide.createIcons();
+                    }
+                    
+                    // Lógica rígida para só atualizar voz/texto se <= 15m (sem o resetar de antes)
+                    if (pathDist <= 15) {
+                        if (lastAnnounced15mInstIndex !== nextInstIdx) {
+                            lastAnnounced15mInstIndex = nextInstIdx;
+                            translateText(nextInst.text, true);
+                        }
+                    }
+                }
+            }
+        }, 500);
+
+        function getDistance(p1, p2) {
+            const R = 6371e3;
+            const φ1 = p1[0] * Math.PI/180;
+            const φ2 = p2[0] * Math.PI/180;
+            const Δφ = (p2[0]-p1[0]) * Math.PI/180;
+            const Δλ = (p2[1]-p1[1]) * Math.PI/180;
+            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        }
+
+        async function fetchAlerts() {
+            if (!userPos || isPlaybackMode) return;
+
+            const currentZoom = map.getZoom();
+            if (currentZoom <= 15) {
+                alertLayer.clearLayers();
+                return;
+            }
+
+            const url = `https://photon.komoot.io/api/?lat=${userPos[0]}&lon=${userPos[1]}&limit=50&radius=1.5&q=speed_camera,construction`;
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
+                alertLayer.clearLayers();
+                data.features.forEach(feature => {
+                    const props = feature.properties;
+                    const coords = [feature.geometry.coordinates[1], feature.geometry.coordinates[0]];
+                    
+                    if (!config.reports['Radar'].show) return;
+
+                    if (props.osm_value === 'speed_camera' || props.name?.toLowerCase().includes('radar')) {
+                        let typeKey = props.osm_key === 'traffic_light' ? 'traffic_light' : 'fixed';
+                        const rInfo = RADAR_DATA[typeKey];
+                        
+                        let iconHtml = '';
+                        if (rInfo.externalIcon) {
+                            iconHtml = `<div class="radar-dot" style="background-image:url('${rInfo.externalIcon}'); background-size:contain; border:none; box-shadow:none;"></div>`;
+                        } else {
+                            iconHtml = `<div class="radar-dot ${rInfo.class}"></div>`;
+                        }
+
+                        const icon = L.divIcon({ className: '', html: iconHtml, iconSize: [18, 18], iconAnchor: [9, 9] });
+                        L.marker(coords, { icon: icon }).on('click', () => showRadarModal(rInfo)).addTo(alertLayer);
+                    } else if (props.osm_value === 'construction' && config.reports['Obras'].show) {
+                        L.circle(coords, { radius: 30, color: '#f97316', fillColor: '#f97316', fillOpacity: 0.5 }).on('click', () => showAlertModal('OBRA', 'Trecho em Obra', 'Cuidado: Operários na pista.', 'construction')).addTo(alertLayer);
+                    }
+                });
+            } catch(e) {}
+        }
+
+        function showRadarModal(info) {
+            document.getElementById('report-meta').classList.add('hidden');
+            document.getElementById('radar-lesson').classList.remove('hidden');
+            document.getElementById('lesson-text').innerText = info.lesson;
+            showAlertModal(info.type, info.title, info.desc, info.externalIcon || info.icon);
+        }
+
+        function showAlertModal(typeTag, title, desc, iconType) {
+            document.getElementById('alert-type').innerText = typeTag;
+            document.getElementById('alert-title').innerText = title;
+            document.getElementById('alert-desc-text').innerText = desc;
+            const iconBox = document.getElementById('alert-icon-box');
+            
+            if (typeof iconType === 'string' && iconType.startsWith('http')) {
+                iconBox.style.backgroundImage = `url('${iconType}')`;
+                iconBox.className = `w-16 h-16 rounded-2xl flex items-center justify-center mb-6 bg-transparent bg-contain bg-center bg-no-repeat`;
+                iconBox.innerHTML = '';
+            } else {
+                iconBox.style.backgroundImage = 'none';
+                let color = "bg-zinc-700";
+                if (iconType === 'construction') color = "bg-orange-600";
+                if (iconType === 'gauge') color = "bg-red-600";
+                if (iconType === 'traffic-light') color = "bg-yellow-500";
+                if (iconType === 'bus') color = "bg-blue-600";
+                iconBox.className = `w-16 h-16 rounded-2xl flex items-center justify-center mb-6 ${color}`;
+                iconBox.innerHTML = `<i data-lucide="${iconType}" color="white" size="32"></i>`;
+            }
+
+            lucide.createIcons();
+            document.getElementById('alert-modal').style.display = 'flex';
+        }
+
+        function closeAlertModal() { 
+            document.getElementById('alert-modal').style.display = 'none'; 
+            document.getElementById('radar-lesson').classList.add('hidden'); 
+            document.getElementById('report-meta').classList.add('hidden'); 
+        }
+
+        function setTravelMode(mode) {
+            travelMode = mode;
+            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById('mode-' + mode).classList.add('active');
+            if (destinationLatLng) setDest(destinationLatLng);
+        }
+
+        function animate(target) {
+            if (!userPos) { return; }
+            const start = prevPos || userPos;
+            const startTime = performance.now();
+            const duration = 250; 
+            
+            function frame(now) {
+                const p = Math.min((now - startTime) / duration, 1);
+                let currentLat = start[0] + (target[0] - start[0]) * p;
+                let currentLng = start[1] + (target[1] - start[1]) * p;
+                let dynamicRotation = rotation;
+
+                if (isNavigating && routingControl && routingControl._selectedRoute) {
+                    const coords = routingControl._selectedRoute.coordinates;
+                    let closestIdx = 0;
+                    let minDist = Infinity;
+                    for (let i = 0; i < coords.length; i++) {
+                        let d = getDistance([currentLat, currentLng], [coords[i].lat, coords[i].lng]);
+                        if (d < minDist) { minDist = d; closestIdx = i; }
+                    }
+                    if (minDist < 25) {
+                        const nextIdx = Math.min(closestIdx + 3, coords.length - 1);
+                        if (nextIdx !== closestIdx) {
+                            const p1 = coords[closestIdx];
+                            const p2 = coords[nextIdx];
+                            const dMove = getDistance([p1.lat, p1.lng], [p2.lat, p2.lng]);
+                            
+                            if(dMove > 2) {
+                                let angle = Math.atan2(p2.lng - p1.lng, p2.lat - p1.lat) * 180 / Math.PI;
+                                dynamicRotation = angle; 
+                            }
+                        }
+                    } else if (prevPos) {
+                        const dMove = getDistance(target, start);
+                        if(dMove > 2) {
+                            let angle = Math.atan2(target[1] - start[1], target[0] - start[0]) * 180 / Math.PI;
+                            dynamicRotation = angle; 
+                        }
+                    }
+                } else if (prevPos) {
+                    const dMove = getDistance(target, start);
+                    if (dMove > 2) { 
+                        let angle = Math.atan2(target[1] - start[1], target[0] - start[0]) * 180 / Math.PI;
+                        dynamicRotation = angle; 
+                    }
+                }
+                
+                let diff = ((dynamicRotation - rotation) % 360 + 540) % 360 - 180;
+                rotation += diff * 0.12; 
+                
+                if (p < 1) requestAnimationFrame(frame);
+            }
+            requestAnimationFrame(frame);
+        }
+
+        function updateUserMarker(coords, rot, asArrow) {
+            if (!userMarker) {
+                userMarker = L.marker(coords, { 
+                    icon: L.divIcon({ 
+                        className: 'user-location-marker-container', 
+                        html: '<div id="marker-inner" style="transform: rotate(0deg); transform-origin: center center;"></div>', 
+                        iconSize: [40, 40], 
+                        iconAnchor: [20, 20] 
+                    }) 
+                }).addTo(map);
+            }
+            
+            const inner = document.getElementById('marker-inner');
+            if (inner) {
+                inner.innerHTML = asArrow ? generateArrowMarkup(arrowStyle, rot, config.arrowSize) : `<div class="marker-blue mx-auto mt-[16px]"></div>`;
+            }
+                
+            userMarker.setLatLng(coords);
+        }
+
+        async function setDest(latlng, forcedOrigin = null) {
+            if (destMarker) map.removeLayer(destMarker);
+            destinationLatLng = latlng;
+            
+            destMarker = L.marker(latlng, { icon: L.divIcon({ className: 'marker-red', html: '<div class="w-2.5 h-2.5 bg-red-500 rounded-full border-[1.5px] border-white shadow-md mx-auto mt-[8.5px]"></div>', iconSize: [20, 20], iconAnchor: [10, 10] }) }).addTo(map);
+            
+            document.getElementById('trip-card').classList.add('active');
+            document.getElementById('speed-ui').classList.add('ui-lift-active');
+            document.getElementById('report-trigger-btn').classList.add('ui-lift-active');
+            
+            if (routingControl) map.removeControl(routingControl);
+            if (darkPurplePolyline) { map.removeLayer(darkPurplePolyline); darkPurplePolyline = null; }
+            
+            let profileBase = { car: 'driving-car', uber: 'driving-car', bus: 'driving-car', bike: 'cycling-regular', walk: 'foot-walking' }[travelMode] || 'driving-car';
+            const origin = forcedOrigin || L.latLng(userPos);
+
+            routingControl = L.Routing.control({
+                waypoints: [origin, latlng],
+                router: L.Routing.osrmv1({ 
+                    serviceUrl: `https://router.project-osrm.org/route/v1`,
+                    profile: profileBase
+                }),
+                lineOptions: { 
+                    styles: [
+                        { color: 'white', opacity: 0.8, weight: 6 }, 
+                        { color: getPathColor(), opacity: 1, weight: 3 }
+                    ] 
+                },
+                createMarker: () => null, 
+                show: false, 
+                routeWhileDragging: false
+            }).on('routesfound', e => {
+                const route = e.routes[0];
+                const dKm = route.summary.totalDistance / 1000;
+                let estimatedMinutes = Math.ceil(route.summary.totalTime / 60);
+                
+                lastAnnounced15mInstIndex = -1;
+
+                document.getElementById('eta-val').innerText = estimatedMinutes < 1 ? "Agora" : estimatedMinutes + "m";
+                document.getElementById('dest-name').innerText = "Destino Selecionado";
+                const ev = document.getElementById('extra-info-val');
+                const el = document.getElementById('extra-info-label');
+                if (travelMode === 'uber') { el.innerText = "Uber Est."; ev.innerText = `R$ ${(6.5 + dKm * 2.1).toFixed(2)}`; }
+                else if (travelMode === 'car') { el.innerText = "Combustível"; ev.innerText = `R$ ${(dKm/10*5.85).toFixed(2)}`; }
+                else if (travelMode === 'bike') { el.innerText = "Calorias Est."; ev.innerText = `${Math.round(dKm * 32)} kcal`; }
+                else { el.innerText = "Passos Est."; ev.innerText = `${Math.round(dKm * 1400)}`; }
+                
+                // Salvar dados de rota na gravação (se ativo)
+                if (isRecordingTrip && currentTripData) {
+                    currentTripData.routeFound = true;
+                    currentTripData.dest = latlng;
+                }
+
+                renderFilteredReports();
+            }).on('routingerror', err => {
+                console.error("Routing error:", err);
+            }).addTo(map);
+        }
+
+        function getPathColor() {
+            const colors = { car: 'var(--accent)', uber: 'var(--accent)', bus: '#3b82f6', bike: '#22c55e', walk: '#eab308' };
+            return colors[travelMode];
+        }
+
+        function toggleNav(start) {
+            isNavigating = start;
+            document.getElementById('search-card').style.display = start ? 'none' : 'block';
+            document.getElementById('instruction-panel').style.display = start ? 'flex' : 'none';
+            
+            document.getElementById('trip-non-nav-group').style.display = start ? 'none' : 'block';
+            
+            document.getElementById('settings-btn').classList.toggle('settings-nav-active', start);
+            document.getElementById('action-area').innerHTML = start ? 
+                `<button onclick="toggleNav(false)" class="btn-action btn-stop">Parar Viagem</button>` : 
+                `<button onclick="toggleNav(true)" class="btn-action">Iniciar Navegação</button>`;
+            
+            renderFilteredReports();
+            
+            if(start) {
+                alertasMostradosNestaViagem.clear();
+                map.setZoom(19); 
+                updateVisionMode();
+                setDest(destinationLatLng); 
+                handleMapInteraction(); // Inicia timer do foco da Regra 1
+
+                // Inicializar gravação
+                if (config.recordTrips === 'true') {
+                    isRecordingTrip = true;
+                    currentTripData = {
+                        id: Date.now(),
+                        date: new Date().toLocaleString('pt-BR'),
+                        frames: []
+                    };
+                }
+
+            } else { 
+                closeProximityAlert();
+                clearSelection(); 
+                updateVisionMode(); 
+                toggleTripMinimize(false);
+                clearInterval(autoFocusLoopInterval); // Limpa foco
+                clearTimeout(inactivityTimeout);
+
+                // Salvar gravação
+                if (isRecordingTrip && currentTripData && currentTripData.frames.length > 5) {
+                    let savedTrips = JSON.parse(localStorage.getItem('catsblock_trips') || '[]');
+                    savedTrips.push(currentTripData);
+                    if (savedTrips.length > 10) savedTrips.shift(); // Limite de 10 gravadas
+                    localStorage.setItem('catsblock_trips', JSON.stringify(savedTrips));
+                }
+                isRecordingTrip = false;
+                currentTripData = null;
+            }
+        }
+
+        function updateNavigationIcon(inst) {
+            let iconName = 'arrow-up';
+            if (!inst) return iconName;
+
+            let text = (inst.text || '').toLowerCase();
+            let type = (inst.type || '').toLowerCase();
+            let modifier = (inst.modifier || '').toLowerCase();
+            let combined = type + " " + modifier + " " + text;
+
+            if (combined.includes('arrive') || combined.includes('destination') || combined.includes('chegar') || combined.includes('destino')) {
+                iconName = 'map-pin';
+            } else if (combined.includes('u-turn') || combined.includes('uturn') || combined.includes('turnaround') || combined.includes('retorno')) {
+                iconName = 'corner-down-left';
+            } else if (combined.includes('sharp right') || combined.includes('direita fechada')) {
+                iconName = 'corner-right-down';
+            } else if (combined.includes('sharp left') || combined.includes('esquerda fechada')) {
+                iconName = 'corner-left-down';
+            } else if (combined.includes('slight right') || combined.includes('direita leve')) {
+                iconName = 'arrow-up-right';
+            } else if (combined.includes('slight left') || combined.includes('esquerda leve')) {
+                iconName = 'arrow-up-left';
+            } else if (combined.includes('keep right') || combined.includes('manter à direita')) {
+                iconName = 'arrow-right-circle';
+            } else if (combined.includes('keep left') || combined.includes('manter à esquerda')) {
+                iconName = 'arrow-left-circle';
+            } else if (combined.includes('right') || combined.includes('direita') || combined.includes('virar à direita')) {
+                iconName = 'corner-up-right';
+            } else if (combined.includes('left') || combined.includes('esquerda') || combined.includes('virar à esquerda')) {
+                iconName = 'corner-up-left';
+            } else if (combined.includes('roundabout') || combined.includes('rotatória')) {
+                iconName = 'refresh-cw';
+            } else if (combined.includes('circle') || combined.includes('círculo')) {
+                iconName = 'circle-dashed';
+            } else if (combined.includes('continue') || combined.includes('straight') || combined.includes('continuar') || combined.includes('frente')) {
+                iconName = 'arrow-up-circle';
+            } else if (combined.includes('merge') || combined.includes('juntar')) {
+                iconName = 'merge';
+            } else if (combined.includes('fork') || combined.includes('bifurcação')) {
+                iconName = 'split';
+            } else if (combined.includes('exit') || combined.includes('saída')) {
+                iconName = 'log-out';
+            }
+            return iconName;
+        }
+
+        function clearSelection() {
+            if (isNavigating) return;
+            if (routingControl) map.removeControl(routingControl);
+            if (destMarker) map.removeLayer(destMarker);
+            if (slowTrafficPolyline) { 
+                if (Array.isArray(slowTrafficPolyline)) {
+                    slowTrafficPolyline.forEach(p => { if(map.hasLayer(p)) map.removeLayer(p); });
+                } else {
+                    if (map.hasLayer(slowTrafficPolyline)) map.removeLayer(slowTrafficPolyline);
+                }
+                slowTrafficPolyline = null; 
+            }
+            if (darkPurplePolyline) { map.removeLayer(darkPurplePolyline); darkPurplePolyline = null; }
+            
+            document.getElementById('trip-card').classList.remove('active');
+            document.getElementById('speed-ui').classList.remove('ui-lift-active');
+            document.getElementById('report-trigger-btn').classList.remove('ui-lift-active');
+            routingControl = null; destinationLatLng = null;
+            activeReportsLayer.clearLayers();
+            window.history.replaceState({}, '', '/');
+        }
+
+        document.getElementById('dest-input').addEventListener('keydown', async (e) => {
+            if (e.key === 'Enter') {
+                const res = await fetch(`https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?f=json&singleLine=${encodeURIComponent(e.target.value)}&maxLocations=5&outFields=Match_addr&countryCode=BRA`);
+                const data = await res.json();
+                const box = document.getElementById('results');
+                box.innerHTML = ''; box.classList.remove('hidden');
+                data.candidates.forEach(c => {
+                    const d = document.createElement('div');
+                    d.className = 'search-item text-white text-sm hover:bg-white/5';
+                    d.innerText = c.address;
+                    d.onclick = () => { box.classList.add('hidden'); setDest(L.latLng(c.location.y, c.location.x)); map.flyTo([c.location.y, c.location.x], 17); };
+                    box.appendChild(d);
+                });
+            }
+        });
+
+        // ======================================
+        // Player de Viagem (Regra 3)
+        // ======================================
+        function openTripRecords() {
+            document.getElementById('list-mapa').classList.remove('active');
+            document.getElementById('list-trips').classList.add('active');
+            
+            const container = document.getElementById('trips-container');
+            container.innerHTML = '';
+            
+            let savedTrips = JSON.parse(localStorage.getItem('catsblock_trips') || '[]');
+            if (savedTrips.length === 0) {
+                container.innerHTML = `<p class="text-xs text-zinc-500 italic text-center mt-4">Nenhuma viagem gravada ainda.</p>`;
+                return;
+            }
+
+            savedTrips.reverse().forEach((trip, idx) => {
+                const div = document.createElement('div');
+                div.className = 'bg-white/5 border border-white/5 rounded-2xl p-4 flex justify-between items-center cursor-pointer hover:bg-white/10 transition-colors';
+                div.innerHTML = `
+                    <div>
+                        <p class="text-sm font-bold text-white mb-1">Viagem ${savedTrips.length - idx}</p>
+                        <p class="text-[10px] text-zinc-400 font-bold uppercase tracking-widest">${trip.date} • ${trip.frames.length} frames</p>
+                    </div>
+                    <i data-lucide="play" class="text-purple-500" style="color: var(--accent);"></i>
+                `;
+                div.onclick = () => startTripPlayback(trip);
+                container.appendChild(div);
+            });
+            lucide.createIcons();
+        }
+
+        function closeTripRecords() {
+            document.getElementById('list-trips').classList.remove('active');
+            document.getElementById('list-mapa').classList.add('active');
+        }
+
+        function startTripPlayback(tripData) {
+            toggleSettings(false);
+            isPlaybackMode = true;
+            currentTripData = tripData;
+            playbackFrameIndex = 0;
+            playbackSpeed = 1;
+
+            document.getElementById('ui-top').style.display = 'none';
+            document.getElementById('trip-card').classList.remove('active');
+            document.getElementById('report-trigger-btn').style.display = 'none';
+            document.getElementById('speed-ui').style.display = 'none';
+
+            document.getElementById('trip-player-ui').style.display = 'block';
+            document.getElementById('tp-speed-slider').value = 1;
+            document.getElementById('tp-speed-display').innerText = '1x';
+            document.getElementById('tp-progress-bar').style.width = '0%';
+            
+            if (tripData.routeFound && tripData.dest) {
+                setDest(tripData.dest, L.latLng(tripData.frames[0].lat, tripData.frames[0].lng));
+            } else if (routingControl) {
+                map.removeControl(routingControl);
+            }
+
+            playTrip();
+        }
+
+        function playTrip() {
+            if (playbackInterval) clearInterval(playbackInterval);
+            document.getElementById('tp-play-icon').setAttribute('data-lucide', 'pause');
+            lucide.createIcons();
+            
+            playbackInterval = setInterval(() => {
+                if (!currentTripData || playbackFrameIndex >= currentTripData.frames.length - 1) {
+                    toggleTripPlayback(); // pausa no final
+                    return;
+                }
+
+                const frame = currentTripData.frames[playbackFrameIndex];
+                interpolatedPos = [frame.lat, frame.lng];
+                rotation = frame.rot;
+                updateUserMarker(interpolatedPos, rotation, true);
+                map.panTo(interpolatedPos, { animate: false });
+                
+                playbackFrameIndex++;
+                let pct = (playbackFrameIndex / currentTripData.frames.length) * 100;
+                document.getElementById('tp-progress-bar').style.width = `${pct}%`;
+                
+                renderFilteredReports(); 
+                
+            }, 1000 / (1 * playbackSpeed)); 
+        }
+
+        function toggleTripPlayback() {
+            if (playbackInterval) {
+                clearInterval(playbackInterval);
+                playbackInterval = null;
+                document.getElementById('tp-play-icon').setAttribute('data-lucide', 'play');
+            } else {
+                if(playbackFrameIndex >= currentTripData.frames.length - 1) playbackFrameIndex = 0;
+                playTrip();
+            }
+            lucide.createIcons();
+        }
+
+        function updatePlaybackSpeed() {
+            playbackSpeed = parseFloat(document.getElementById('tp-speed-slider').value);
+            document.getElementById('tp-speed-display').innerText = playbackSpeed + 'x';
+            if (playbackInterval) playTrip();
+        }
+
+        function closeTripPlayer() {
+            isPlaybackMode = false;
+            clearInterval(playbackInterval);
+            playbackInterval = null;
+            currentTripData = null;
+
+            document.getElementById('trip-player-ui').style.display = 'none';
+            document.getElementById('ui-top').style.display = 'block';
+            document.getElementById('report-trigger-btn').style.display = 'block';
+            document.getElementById('speed-ui').style.display = 'block';
+            
+            clearSelection();
+            if (userPos) {
+                interpolatedPos = [...userPos];
+                map.panTo(userPos);
+                updateUserMarker(userPos, 0, false);
+            }
+        }
+    </script>
+</body>
+</html>
