@@ -3,12 +3,13 @@ package com.catsblock.car
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Bundle
-import android.webkit.*
+import android.webkit.GeolocationPermissions
+import android.webkit.WebChromeClient
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
-import androidx.browser.customtabs.CustomTabsIntent
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
@@ -28,31 +29,16 @@ class MainActivity : AppCompatActivity() {
         container.addView(webView)
         setContentView(container)
 
-        // Configurações padrão e seguras - SEM MASCARAR O USER AGENT
+        // Configurações essenciais para rodar arquivos locais
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
             setGeolocationEnabled(true)
+            allowFileAccess = true // Permite acessar arquivos locais
+            allowContentAccess = true
         }
 
-        CookieManager.getInstance().setAcceptCookie(true)
-        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
-
-        webView.webViewClient = object : WebViewClient() {
-            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                val url = request?.url.toString()
-
-                // Se for uma URL de login, use o componente de segurança oficial (Custom Tab)
-                // Isso NÃO é burlar, é usar a ferramenta de segurança do próprio Android
-                if (url.contains("accounts.google.com") || url.contains("firebaseauth")) {
-                    val builder = CustomTabsIntent.Builder()
-                    val customTabsIntent = builder.build()
-                    customTabsIntent.launchUrl(this@MainActivity, Uri.parse(url))
-                    return true
-                }
-                return false
-            }
-        }
+        webView.webViewClient = WebViewClient()
 
         webView.webChromeClient = object : WebChromeClient() {
             override fun onGeolocationPermissionsShowPrompt(origin: String, callback: GeolocationPermissions.Callback) {
@@ -60,17 +46,14 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        webView.loadUrl("https://catsblock-car.pages.dev")
+        // Carrega o arquivo index.html da pasta assets/
+        // Certifique-se de que o arquivo esteja em: app/src/main/assets/index.html
+        webView.loadUrl("file:///android_asset/index.html")
     }
 
     private fun verificarPermissaoLocalizacao() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), 1001)
         }
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        // Se negado, o app não terá a funcionalidade de mapa, mas continuará seguro.
     }
 }
